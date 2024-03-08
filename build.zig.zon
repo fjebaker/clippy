@@ -1,0 +1,11 @@
+.{
+    .name = "clippy",
+    .paths = .{""},
+    .version = "0.1.0",
+    .dependencies = .{
+        .farbe = .{
+            .url = "https://github.com/fjebaker/farbe/archive/main.tar.gz",
+            .hash = "1220623c42ffb9f78fdd017f10e3ba2291210965893b22efc062f4f24d7ad306651b",
+        },
+    },
+}
