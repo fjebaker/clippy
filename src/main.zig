@@ -3,7 +3,10 @@ const testing = std.testing;
 
 const utils = @import("utils.zig");
 const ArgumentInfo = @import("info.zig").ArgumentInfo;
-const ParserWrapper = @import("wrapper.zig").ParserWrapper;
+
+const wrapper = @import("wrapper.zig");
+const ParserWrapper = wrapper.ParserWrapper;
+const ParserCommandWrapper = wrapper.ParserCommandWrapper;
 
 pub const cli = @import("cli.zig");
 
@@ -30,6 +33,30 @@ pub const ArgumentDescriptor = struct {
     parse: bool = true,
 };
 
+/// Command descriptor for specifying arguments for subcommands
+pub const CommandDescriptor = struct {
+    /// Command name
+    name: []const u8,
+
+    /// Arguments associated with this subcommand
+    args: type,
+
+    fn toUnionField(
+        comptime cmd: CommandDescriptor,
+        comptime parsed_type: bool,
+    ) std.builtin.Type.UnionField {
+        if (!utils.allValidPositionalChars(cmd.name))
+            @compileError("Invalid command name");
+
+        const T = if (parsed_type) cmd.args.Parsed else cmd.args;
+        return .{
+            .name = @ptrCast(cmd.name),
+            .type = T,
+            .alignment = @alignOf(T),
+        };
+    }
+};
+
 pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
     const infos = parseableInfo(args);
 
@@ -49,6 +76,62 @@ pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
     );
 
     return ParserWrapper(infos, InternalType);
+}
+
+pub const CommandsOptions = struct {
+    mutual: type = void,
+    commands: []const CommandDescriptor,
+};
+
+pub fn Commands(comptime opts: CommandsOptions) type {
+    // TODO: find some way of enforcing that the args type in the command
+    // descriptor is actually the correct arguments type
+
+    comptime var union_fields: []const std.builtin.Type.UnionField = &.{};
+    inline for (opts.commands) |cmd| {
+        union_fields = union_fields ++ .{cmd.toUnionField(false)};
+    }
+
+    comptime var parsed_fields: []const std.builtin.Type.UnionField = &.{};
+    inline for (opts.commands) |cmd| {
+        parsed_fields = parsed_fields ++ .{cmd.toUnionField(true)};
+    }
+
+    comptime var enum_fields: []const std.builtin.Type.EnumField = &.{};
+    inline for (opts.commands, 0..) |cmd, i| {
+        const field: std.builtin.Type.EnumField = .{
+            .name = @ptrCast(cmd.name),
+            .value = i,
+        };
+        enum_fields = enum_fields ++ .{field};
+    }
+
+    const tag_enum = @Type(.{ .Enum = .{
+        .tag_type = usize,
+        .fields = enum_fields,
+        .decls = &.{},
+        .is_exhaustive = false,
+    } });
+
+    const CommandsType = @Type(
+        .{ .Union = .{
+            .layout = .Auto,
+            .tag_type = tag_enum,
+            .fields = union_fields,
+            .decls = &.{},
+        } },
+    );
+
+    const InternalType = @Type(
+        .{ .Union = .{
+            .layout = .Auto,
+            .tag_type = tag_enum,
+            .fields = parsed_fields,
+            .decls = &.{},
+        } },
+    );
+
+    return ParserCommandWrapper(opts, CommandsType, InternalType);
 }
 
 /// Filter only those arguments with `parse` set to `true`, and initialize the
@@ -138,6 +221,71 @@ test "example arguments" {
         try testing.expectEqualStrings(parsed.item, "hello");
         try testing.expectEqual(parsed.other, null);
         try testing.expectEqual(true, parsed.flag);
+    }
+}
+
+const MoreTestArguments = [_]ArgumentDescriptor{
+    .{
+        .arg = "item",
+        .help = "Positional argument.",
+        .required = true,
+    },
+    .{
+        .arg = "-c/--control",
+        .help = "Toggleable",
+    },
+};
+
+const MutualTestArguments = [_]ArgumentDescriptor{
+    .{
+        .arg = "--interactive",
+        .help = "Toggleable",
+    },
+};
+
+test "commands" {
+    const Args1 = Arguments(&TestArguments);
+    const Args2 = Arguments(&MoreTestArguments);
+    const Mutuals = Arguments(&MutualTestArguments);
+
+    const Cmds = Commands(
+        .{ .mutual = Mutuals, .commands = &.{
+            .{ .name = "hello", .args = Args1 },
+            .{ .name = "world", .args = Args2 },
+        } },
+    );
+
+    {
+        const parsed = try parseArgs(
+            Cmds,
+            "hello abc --flag",
+        );
+        try testing.expectEqual(false, parsed.mutual.interactive);
+        const c = parsed.commands.hello;
+        try testing.expectEqualStrings("abc", c.item);
+        try testing.expectEqual(true, c.flag);
+    }
+
+    {
+        const parsed = try parseArgs(
+            Cmds,
+            "hello abc --interactive",
+        );
+        try testing.expectEqual(true, parsed.mutual.interactive);
+        const c = parsed.commands.hello;
+        try testing.expectEqualStrings("abc", c.item);
+    }
+
+    {
+        // TODO: need to check for unknown flags too
+        const parsed = try parseArgs(
+            Cmds,
+            "hello abc --control",
+        );
+        try testing.expectEqual(false, parsed.mutual.interactive);
+        const c = parsed.commands.hello;
+        try testing.expectEqualStrings("abc", c.item);
+        try testing.expectEqual(false, c.flag);
     }
 }
 

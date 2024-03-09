@@ -36,28 +36,6 @@ test "split arg name" {
     );
 }
 
-fn isValidFlagChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '-';
-}
-
-fn isValidPositionalChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c);
-}
-
-fn allValidFlagChars(s: []const u8) bool {
-    for (s) |c| {
-        if (!isValidFlagChar(c)) return false;
-    }
-    return true;
-}
-
-fn allValidPositionalChars(s: []const u8) bool {
-    for (s) |c| {
-        if (!isValidPositionalChar(c)) return false;
-    }
-    return true;
-}
-
 pub const ArgumentInfo = union(enum) {
     Flag: struct {
         descriptor: ArgumentDescriptor,
@@ -88,8 +66,8 @@ pub const ArgumentInfo = union(enum) {
             const long = arg[3..];
             if (long[0] == '-' and
                 long[1] == '-' and
-                allValidFlagChars(long[2..]) and
-                allValidFlagChars(short[1..]))
+                utils.allValidFlagChars(long[2..]) and
+                utils.allValidFlagChars(short[1..]))
             {
                 return .{
                     .Flag = .{
@@ -101,7 +79,7 @@ pub const ArgumentInfo = union(enum) {
                     },
                 };
             }
-        } else if (arg[1] == '-' and allValidFlagChars(arg[2..])) {
+        } else if (arg[1] == '-' and utils.allValidFlagChars(arg[2..])) {
             return .{
                 .Flag = .{
                     .flag_type = .Long,
@@ -115,7 +93,7 @@ pub const ArgumentInfo = union(enum) {
     }
 
     fn fromPositional(comptime descriptor: ArgumentDescriptor) !ArgumentInfo {
-        if (allValidPositionalChars(descriptor.arg)) {
+        if (utils.allValidPositionalChars(descriptor.arg)) {
             return .{
                 .Positional = .{
                     .name = descriptor.arg,

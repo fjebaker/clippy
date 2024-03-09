@@ -21,6 +21,28 @@ pub const ComptimeError = error{
     IncompatibleTypes,
 };
 
+fn isValidFlagChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '-';
+}
+
+fn isValidPositionalChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c);
+}
+
+pub fn allValidFlagChars(s: []const u8) bool {
+    for (s) |c| {
+        if (!isValidFlagChar(c)) return false;
+    }
+    return true;
+}
+
+pub fn allValidPositionalChars(s: []const u8) bool {
+    for (s) |c| {
+        if (!isValidPositionalChar(c)) return false;
+    }
+    return true;
+}
+
 /// A helper for creating iterable slices
 pub fn ListIterator(comptime T: type) type {
     return struct {
