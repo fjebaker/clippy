@@ -31,6 +31,9 @@ pub const ArgumentDescriptor = struct {
 
     /// Should be parsed by the helper
     parse: bool = true,
+
+    /// Completion function used to generate completion hints
+    completion: ?type = null,
 };
 
 /// Command descriptor for specifying arguments for subcommands

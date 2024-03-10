@@ -29,30 +29,28 @@ const ParseArgOutcome = enum {
     }
 };
 
-pub fn ParserCommandWrapper(
-    comptime opts: CommandsOptions,
-    comptime CommandsT: type,
-    comptime CommandsParsed: type,
+fn Wrapper(
+    comptime T: type,
+    comptime P: type,
+    comptime MethodTable: struct {
+        initImpl: fn (*ArgIterator) T,
+        parseArgImpl: fn (*T, Arg) anyerror!ParseArgOutcome,
+        getParsedImpl: fn (*const T) anyerror!P,
+    },
 ) type {
-    const MutualParsed = opts.mutual.Parsed;
-
     return struct {
+        pub const Parsed = P;
+        const Methods = MethodTable;
         const Self = @This();
 
-        itt: *ArgIterator,
-        mutual: opts.mutual,
-        commands: ?CommandsT = null,
+        t: T,
 
-        pub const Parsed = struct {
-            mutual: MutualParsed,
-            commands: CommandsParsed,
-        };
+        fn parseArgImpl(self: *Self, arg: Arg) anyerror!ParseArgOutcome {
+            return try Methods.parseArgImpl(&self.t, arg);
+        }
 
         pub fn init(itt: *ArgIterator) Self {
-            return .{
-                .mutual = opts.mutual.init(itt),
-                .itt = itt,
-            };
+            return .{ .t = Methods.initImpl(itt) };
         }
 
         /// Parse the arguments from the argument iterator. This method is to
@@ -77,8 +75,41 @@ pub fn ParserCommandWrapper(
             return self.getParsed();
         }
 
-        fn getCommandsParsed(self: *Self) !CommandsParsed {
-            const cmds = self.commands orelse unreachable; // TODO: error
+        /// Get the parsed argument structure and validate that all required
+        /// fields have values.
+        pub fn getParsed(self: *const Self) !Parsed {
+            return Methods.getParsedImpl(&self.t);
+        }
+    };
+}
+
+pub fn ParserCommandWrapper(
+    comptime opts: CommandsOptions,
+    comptime CommandsT: type,
+    comptime CommandsParsed: type,
+) type {
+    const MutualParsed = opts.mutual.Parsed;
+    const Parsed = struct {
+        mutual: MutualParsed,
+        commands: CommandsParsed,
+    };
+
+    const InnerType = struct {
+        const InnerType = @This();
+        itt: *ArgIterator,
+        mutual: opts.mutual,
+        commands: ?CommandsT = null,
+
+        fn initImpl(itt: *ArgIterator) InnerType {
+            return .{
+                .mutual = opts.mutual.init(itt),
+                .itt = itt,
+            };
+        }
+
+        fn getCommandsParsed(self: *const InnerType) !CommandsParsed {
+            // TODO: error
+            const cmds = self.commands orelse unreachable;
             inline for (@typeInfo(CommandsT).Union.fields) |field| {
                 if (std.mem.eql(u8, @tagName(cmds), field.name)) {
                     var active = @field(cmds, field.name);
@@ -93,14 +124,14 @@ pub fn ParserCommandWrapper(
             unreachable;
         }
 
-        pub fn getParsed(self: *Self) !Parsed {
+        fn getParsedImpl(self: *const InnerType) anyerror!Parsed {
             return .{
                 .mutual = try self.mutual.getParsed(),
                 .commands = try self.getCommandsParsed(),
             };
         }
 
-        fn instanceCommand(self: *Self, s: []const u8) bool {
+        fn instanceCommand(self: *InnerType, s: []const u8) bool {
             inline for (@typeInfo(CommandsT).Union.fields) |field| {
                 if (std.mem.eql(u8, s, field.name)) {
                     const instance = @field(field.type, "init")(
@@ -117,7 +148,7 @@ pub fn ParserCommandWrapper(
             return false;
         }
 
-        fn parseArgImpl(self: *Self, arg: Arg) !ParseArgOutcome {
+        fn parseArgImpl(self: *InnerType, arg: Arg) anyerror!ParseArgOutcome {
             if (self.commands) |*commands| {
                 switch (commands.*) {
                     inline else => |*c| {
@@ -134,6 +165,16 @@ pub fn ParserCommandWrapper(
             return try self.mutual.parseArgImpl(arg);
         }
     };
+
+    return Wrapper(
+        InnerType,
+        Parsed,
+        .{
+            .initImpl = InnerType.initImpl,
+            .parseArgImpl = InnerType.parseArgImpl,
+            .getParsedImpl = InnerType.getParsedImpl,
+        },
+    );
 }
 
 pub fn ParserWrapper(
@@ -141,9 +182,40 @@ pub fn ParserWrapper(
     comptime T: type,
 ) type {
     const Mask = std.bit_set.StaticBitSet(infos.len);
+    const Parsed = T;
 
-    const Methods = struct {
-        pub fn checkUnsetRequireds(
+    const InnerType = struct {
+        const InnerType = @This();
+        itt: *ArgIterator,
+        parsed: Parsed = .{},
+        mask: Mask,
+
+        fn initImpl(itt: *ArgIterator) InnerType {
+            return .{
+                .itt = itt,
+                .mask = Mask.initEmpty(),
+            };
+        }
+
+        fn parseArgImpl(self: *InnerType, arg: Arg) anyerror!ParseArgOutcome {
+            return try parseInto(
+                &self.parsed,
+                &self.mask,
+                arg,
+                self.itt,
+            );
+        }
+
+        fn getParsedImpl(self: *const InnerType) !Parsed {
+            if (checkUnsetRequireds(self.mask)) |unset_name| {
+                _ = unset_name;
+                // TODO: error
+                unreachable;
+            }
+            return self.parsed;
+        }
+
+        fn checkUnsetRequireds(
             mask: Mask,
         ) ?[]const u8 {
             inline for (infos, 0..) |info, i| {
@@ -154,7 +226,7 @@ pub fn ParserWrapper(
             return null;
         }
 
-        pub fn parseInto(
+        fn parseInto(
             args: *T,
             mask: *Mask,
             arg: Arg,
@@ -203,60 +275,13 @@ pub fn ParserWrapper(
         }
     };
 
-    return struct {
-        const Self = @This();
-        const InternalMethods = Methods;
-        pub const Parsed = T;
-
-        itt: *ArgIterator,
-        parsed: Parsed = .{},
-        mask: Mask,
-
-        pub fn init(itt: *ArgIterator) Self {
-            return .{
-                .itt = itt,
-                .mask = Mask.initEmpty(),
-            };
-        }
-
-        /// Parse the arguments from the argument iterator. This method is to
-        /// be fed one argument at a time. Returns `false` if the argument was
-        /// not used, allowing other parsing code to be used in tandem.
-        pub fn parseArg(self: *Self, arg: Arg) !bool {
-            const outcome = try self.parseArgImpl(arg);
-            return outcome.isParsed();
-        }
-
-        /// Parses all arguments and exhausts the `ArgIterator`. Returns a
-        /// structure containing all the arguments.
-        pub fn parseAll(itt: *ArgIterator) !Parsed {
-            var self = Self.init(itt);
-            while (try itt.next()) |arg| {
-                switch (try self.parseArgImpl(arg)) {
-                    .UnparsedFlag => try itt.throwUnknownFlag(),
-                    .UnparsedPositional => try itt.throwTooManyArguments(),
-                    else => {},
-                }
-            }
-            return self.getParsed();
-        }
-
-        /// Get the parsed argument structure and validate that all required
-        /// fields have values.
-        pub fn getParsed(self: *const Self) !Parsed {
-            if (Methods.checkUnsetRequireds(self.mask)) |name| {
-                _ = name;
-            }
-            return self.parsed;
-        }
-
-        fn parseArgImpl(self: *Self, arg: Arg) !ParseArgOutcome {
-            return try Methods.parseInto(
-                &self.parsed,
-                &self.mask,
-                arg,
-                self.itt,
-            );
-        }
-    };
+    return Wrapper(
+        InnerType,
+        Parsed,
+        .{
+            .initImpl = InnerType.initImpl,
+            .parseArgImpl = InnerType.parseArgImpl,
+            .getParsedImpl = InnerType.getParsedImpl,
+        },
+    );
 }
