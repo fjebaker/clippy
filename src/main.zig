@@ -305,3 +305,22 @@ test "everything else" {
     _ = @import("info.zig");
     _ = @import("wrapper.zig");
 }
+
+test "argument completion" {
+    const Args1 = TestClippy.Arguments(&TestArguments);
+    const comp1 = try Args1.generateCompletion(testing.allocator, .Zsh);
+    defer testing.allocator.free(comp1);
+
+    try testing.expectEqualStrings(
+        \\_arguments_name() {
+        \\    _arguments -C \
+        \\        ':item:()' \
+        \\        '--limit[]::()' \
+        \\        '-n[]::()' \
+        \\        '::other:()' \
+        \\        '--flag[]::()' \
+        \\        '-f[]::()'
+        \\}
+        \\
+    , comp1);
+}

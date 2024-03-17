@@ -104,6 +104,7 @@ pub const ArgumentInfo = union(enum) {
         return Error.MalformedDescriptor;
     }
 
+    /// Initialize an `ArgumentInfo` from a `ArgumentDescriptor`
     pub fn fromDescriptor(comptime descriptor: ArgumentDescriptor) !ArgumentInfo {
         const arg = descriptor.arg;
         if (arg.len == 0) return Error.MalformedDescriptor;
@@ -114,12 +115,21 @@ pub const ArgumentInfo = union(enum) {
         }
     }
 
+    /// Get the underlying `ArgumentDescriptor`
+    pub fn getDescriptor(comptime self: ArgumentInfo) ArgumentDescriptor {
+        return switch (self) {
+            inline else => |i| i.descriptor,
+        };
+    }
+
+    /// Is the argument a required argument?
     pub fn isRequired(comptime self: ArgumentInfo) bool {
         return switch (self) {
             inline else => |i| i.descriptor.required,
         };
     }
 
+    /// Get the argument type.
     pub fn GetType(comptime self: ArgumentInfo) type {
         const T = switch (self) {
             .Flag => |f| if (f.with_value)

@@ -3,6 +3,7 @@ const testing = std.testing;
 
 const utils = @import("utils.zig");
 const cli = @import("cli.zig");
+const completion = @import("completion.zig");
 
 const Error = utils.Error;
 const Arg = cli.Arg;
@@ -36,6 +37,7 @@ fn WrapperInterface(
         initImpl: fn (*ArgIterator) T,
         parseArgImpl: fn (*T, Arg) anyerror!ParseArgOutcome,
         getParsedImpl: fn (*const T) anyerror!P,
+        generateCompletionImpl: fn (std.mem.Allocator, completion.Shell) anyerror![]const u8,
     },
 ) type {
     return struct {
@@ -49,8 +51,23 @@ fn WrapperInterface(
             return try Methods.parseArgImpl(&self.t, arg);
         }
 
+        fn generateCompletionImpl(
+            allocator: std.mem.Allocator,
+            shell: completion.Shell,
+        ) ![]const u8 {
+            return try Methods.generateCompletionImpl(allocator, shell);
+        }
+
         pub fn init(itt: *ArgIterator) Self {
             return .{ .t = Methods.initImpl(itt) };
+        }
+
+        /// Write the shell completion script for a given `Shell`
+        pub fn generateCompletion(
+            allocator: std.mem.Allocator,
+            shell: completion.Shell,
+        ) ![]const u8 {
+            return try generateCompletionImpl(allocator, shell);
         }
 
         /// Parse the arguments from the argument iterator. This method is to
@@ -165,6 +182,14 @@ pub fn CommandsWrapper(
 
             return try self.mutual.parseArgImpl(arg);
         }
+
+        fn generateCompletionImpl(
+            allocator: std.mem.Allocator,
+            shell: completion.Shell,
+        ) ![]const u8 {
+            _ = allocator;
+            _ = shell;
+        }
     };
 
     return WrapperInterface(
@@ -175,6 +200,7 @@ pub fn CommandsWrapper(
             .initImpl = InnerType.initImpl,
             .parseArgImpl = InnerType.parseArgImpl,
             .getParsedImpl = InnerType.getParsedImpl,
+            .generateCompletionImpl = InnerType.generateCompletionImpl,
         },
     );
 }
@@ -276,6 +302,54 @@ pub fn ArgumentsWrapper(
                 return .UnparsedPositional;
             }
         }
+
+        fn generateCompletionImpl(
+            allocator: std.mem.Allocator,
+            shell: completion.Shell,
+        ) anyerror![]const u8 {
+            // TODO: make this dispatch on different shells correctly
+            _ = shell;
+
+            var writer = try completion.CompletionWriter.init(allocator);
+            defer writer.deinit();
+            const Comp = completion.ZshCompletionWriter;
+
+            inline for (infos) |info| {
+                switch (info) {
+                    .Flag => |f| {
+                        switch (f.flag_type) {
+                            .ShortAndLong => try Comp.writeShortLongFlag(
+                                &writer,
+                                f.short_name.?,
+                                f.name,
+                                null,
+                                null,
+                            ),
+                            .Long => try Comp.writeLongFlag(
+                                &writer,
+                                f.name,
+                                null,
+                                null,
+                            ),
+                            .Short => try Comp.writeShortFlag(
+                                &writer,
+                                f.name,
+                                null,
+                                null,
+                            ),
+                        }
+                    },
+                    .Positional => |p| try Comp.writePositional(
+                        &writer,
+                        !p.descriptor.required,
+                        p.name,
+                        null,
+                    ),
+                }
+            }
+
+            return try writer.finalize("name");
+        }
     };
 
     return WrapperInterface(
@@ -286,6 +360,7 @@ pub fn ArgumentsWrapper(
             .initImpl = InnerType.initImpl,
             .parseArgImpl = InnerType.parseArgImpl,
             .getParsedImpl = InnerType.getParsedImpl,
+            .generateCompletionImpl = InnerType.generateCompletionImpl,
         },
     );
 }
