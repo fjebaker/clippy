@@ -29,6 +29,13 @@ const ParseArgOutcome = enum {
     }
 };
 
+pub const HelpFormatting = struct {
+    left_pad: usize = 4,
+    help_len: usize = 48,
+    centre_padding: usize = 26,
+    indent: usize = 2,
+};
+
 fn WrapperInterface(
     comptime ArgIterator: type,
     comptime T: type,
@@ -38,6 +45,7 @@ fn WrapperInterface(
         parseArgImpl: fn (*T, Arg) anyerror!ParseArgOutcome,
         getParsedImpl: fn (*const T) anyerror!P,
         generateCompletionImpl: fn (std.mem.Allocator, completion.Shell) anyerror![]const u8,
+        writeHelpImpl: fn (anytype, comptime HelpFormatting) anyerror!void,
     },
 ) type {
     return struct {
@@ -95,7 +103,12 @@ fn WrapperInterface(
         /// Get the parsed argument structure and validate that all required
         /// fields have values.
         pub fn getParsed(self: *const Self) !Parsed {
-            return Methods.getParsedImpl(&self.t);
+            return try Methods.getParsedImpl(&self.t);
+        }
+
+        /// Write the help string for the arguments
+        pub fn writeHelp(writer: anytype, comptime opts: HelpFormatting) !void {
+            return try Methods.writeHelpImpl(writer, opts);
         }
     };
 }
@@ -123,6 +136,11 @@ pub fn CommandsWrapper(
                 .mutual = opts.mutual.init(itt),
                 .itt = itt,
             };
+        }
+
+        fn writeHelpImpl(writer: anytype, comptime help_opts: HelpFormatting) !void {
+            _ = writer;
+            _ = help_opts;
         }
 
         fn getCommandsParsed(self: *const InnerType) !CommandsParsed {
@@ -201,6 +219,7 @@ pub fn CommandsWrapper(
             .parseArgImpl = InnerType.parseArgImpl,
             .getParsedImpl = InnerType.getParsedImpl,
             .generateCompletionImpl = InnerType.generateCompletionImpl,
+            .writeHelpImpl = InnerType.writeHelpImpl,
         },
     );
 }
@@ -224,6 +243,30 @@ pub fn ArgumentsWrapper(
                 .itt = itt,
                 .mask = Mask.initEmpty(),
             };
+        }
+
+        fn writeHelpImpl(writer: anytype, comptime help_opts: HelpFormatting) !void {
+            inline for (infos) |info| {
+                try writer.writeByteNTimes(' ', help_opts.left_pad);
+                // print the argument itself
+                const name = info.getName();
+                if (info.isRequired()) {
+                    try writer.print("<{s}>", .{name});
+                } else {
+                    try writer.print("[{s}]", .{name});
+                }
+                try writer.writeByteNTimes(
+                    ' ',
+                    help_opts.centre_padding -| (name.len + 2),
+                );
+                try utils.writeWrapped(writer, info.getHelp(), .{
+                    .left_pad = help_opts.left_pad + help_opts.centre_padding,
+                    .continuation_indent = help_opts.indent,
+                    .column_limit = help_opts.help_len,
+                });
+
+                try writer.writeByte('\n');
+            }
         }
 
         fn parseArgImpl(self: *InnerType, arg: Arg) anyerror!ParseArgOutcome {
@@ -361,6 +404,7 @@ pub fn ArgumentsWrapper(
             .parseArgImpl = InnerType.parseArgImpl,
             .getParsedImpl = InnerType.getParsedImpl,
             .generateCompletionImpl = InnerType.generateCompletionImpl,
+            .writeHelpImpl = InnerType.writeHelpImpl,
         },
     );
 }

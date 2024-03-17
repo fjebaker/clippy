@@ -153,6 +153,10 @@ pub const ArgumentInfo = union(enum) {
         };
     }
 
+    pub fn getHelp(comptime self: ArgumentInfo) []const u8 {
+        return self.getDescriptor().help;
+    }
+
     pub fn getDefaultValue(comptime self: ArgumentInfo) GetType(self) {
         if (!self.isRequired()) {
             switch (self) {

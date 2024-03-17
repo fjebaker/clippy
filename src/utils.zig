@@ -73,3 +73,59 @@ pub fn fromString(alloc: std.mem.Allocator, args: []const u8) ![][]const u8 {
     while (itt.next()) |item| try list.append(item);
     return list.toOwnedSlice();
 }
+
+pub const WrappingOptions = struct {
+    left_pad: usize = 0,
+    continuation_indent: usize = 0,
+    column_limit: usize = 70,
+};
+
+/// Wrap a string over a number of lines in a comptime context. See also
+/// `writeWrapped` for a runtime version.
+pub fn comptimeWrap(comptime text: []const u8, comptime opts: WrappingOptions) []const u8 {
+    @setEvalBranchQuota(10000);
+    comptime var out: []const u8 = "";
+    comptime var line_len: usize = 0;
+    comptime var itt = std.mem.splitAny(u8, text, " \n");
+
+    // so we can reinsert the spaces correctly we do the first word first
+    if (itt.next()) |first_word| {
+        out = out ++ first_word;
+        line_len += first_word.len;
+    }
+    // followed by all others words
+    inline while (itt.next()) |word| {
+        out = out ++ " ";
+        line_len += word.len;
+        if (line_len > opts.column_limit) {
+            out = out ++
+                "\n" ++
+                " " ** (opts.left_pad + opts.continuation_indent);
+            line_len = opts.continuation_indent;
+        }
+        out = out ++ word;
+    }
+
+    return out;
+}
+
+/// Wrap a string over a number of lines in a comptime context.
+pub fn writeWrapped(writer: anytype, text: []const u8, opts: WrappingOptions) !void {
+    var line_len: usize = 0;
+    var itt = std.mem.splitAny(u8, text, " \n");
+    if (itt.next()) |first| {
+        try writer.writeAll(first);
+        line_len += first.len;
+    }
+
+    while (itt.next()) |word| {
+        try writer.writeByte(' ');
+        line_len += word.len;
+        if (line_len > opts.column_limit) {
+            try writer.writeByte('\n');
+            try writer.writeByteNTimes(' ', opts.left_pad + opts.continuation_indent);
+            line_len = opts.continuation_indent;
+        }
+        try writer.writeAll(word);
+    }
+}

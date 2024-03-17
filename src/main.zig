@@ -12,6 +12,11 @@ pub const ComptimeError = utils.ComptimeError;
 pub const RuntimeError = utils.RuntimeError;
 pub const Error = utils.Error;
 
+pub const WrappingOptions = utils.WrappingOptions;
+pub const HelpFormatting = wrapper.HelpFormatting;
+pub const comptimeWrap = utils.comptimeWrap;
+pub const writeWrapped = utils.writeWrapped;
+
 pub fn ClippyInterface(
     comptime options: cli.ArgumentIteratorOptions,
 ) type {
@@ -327,4 +332,14 @@ test "argument completion" {
         \\}
         \\
     , comp1);
+}
+
+test "argument help" {
+    const Args1 = TestClippy.Arguments(&TestArguments);
+
+    var list = std.ArrayList(u8).init(testing.allocator);
+    defer list.deinit();
+
+    const writer = list.writer();
+    try Args1.writeHelp(writer, .{});
 }
