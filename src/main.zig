@@ -61,7 +61,7 @@ pub fn ClippyInterface(
                 } },
             );
 
-            return wrapper.ParserCommandWrapper(ArgIterator, opts, CommandsType, InternalType);
+            return wrapper.CommandsWrapper(ArgIterator, opts, CommandsType, InternalType);
         }
 
         pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
@@ -82,7 +82,7 @@ pub fn ClippyInterface(
                 } },
             );
 
-            return wrapper.ParserWrapper(ArgIterator, infos, InternalType);
+            return wrapper.ArgumentsWrapper(ArgIterator, infos, InternalType);
         }
     };
 }

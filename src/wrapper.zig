@@ -28,7 +28,7 @@ const ParseArgOutcome = enum {
     }
 };
 
-fn Wrapper(
+fn WrapperInterface(
     comptime ArgIterator: type,
     comptime T: type,
     comptime P: type,
@@ -83,7 +83,7 @@ fn Wrapper(
     };
 }
 
-pub fn ParserCommandWrapper(
+pub fn CommandsWrapper(
     comptime ArgIterator: type,
     comptime opts: CommandsOptions,
     comptime CommandsT: type,
@@ -167,7 +167,7 @@ pub fn ParserCommandWrapper(
         }
     };
 
-    return Wrapper(
+    return WrapperInterface(
         ArgIterator,
         InnerType,
         Parsed,
@@ -179,7 +179,7 @@ pub fn ParserCommandWrapper(
     );
 }
 
-pub fn ParserWrapper(
+pub fn ArgumentsWrapper(
     comptime ArgIterator: type,
     comptime infos: []const ArgumentInfo,
     comptime T: type,
@@ -278,7 +278,7 @@ pub fn ParserWrapper(
         }
     };
 
-    return Wrapper(
+    return WrapperInterface(
         ArgIterator,
         InnerType,
         Parsed,
