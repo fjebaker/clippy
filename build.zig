@@ -4,19 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const farbe = b.dependency("farbe", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     _ = b.addModule("clippy", .{
         .root_source_file = .{ .path = "src/main.zig" },
-        .imports = &.{
-            .{
-                .name = "farbe",
-                .module = farbe.module("farbe"),
-            },
-        },
     });
 
     const lib = b.addStaticLibrary(.{
@@ -37,4 +26,6 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
+
+    b.installArtifact(main_tests);
 }

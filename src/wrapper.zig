@@ -6,7 +6,6 @@ const cli = @import("cli.zig");
 
 const Error = utils.Error;
 const Arg = cli.Arg;
-const ArgIterator = cli.ArgIterator;
 
 const ArgumentInfo = @import("info.zig").ArgumentInfo;
 const CommandsOptions = @import("main.zig").CommandsOptions;
@@ -30,6 +29,7 @@ const ParseArgOutcome = enum {
 };
 
 fn Wrapper(
+    comptime ArgIterator: type,
     comptime T: type,
     comptime P: type,
     comptime MethodTable: struct {
@@ -84,6 +84,7 @@ fn Wrapper(
 }
 
 pub fn ParserCommandWrapper(
+    comptime ArgIterator: type,
     comptime opts: CommandsOptions,
     comptime CommandsT: type,
     comptime CommandsParsed: type,
@@ -167,6 +168,7 @@ pub fn ParserCommandWrapper(
     };
 
     return Wrapper(
+        ArgIterator,
         InnerType,
         Parsed,
         .{
@@ -178,6 +180,7 @@ pub fn ParserCommandWrapper(
 }
 
 pub fn ParserWrapper(
+    comptime ArgIterator: type,
     comptime infos: []const ArgumentInfo,
     comptime T: type,
 ) type {
@@ -276,6 +279,7 @@ pub fn ParserWrapper(
     };
 
     return Wrapper(
+        ArgIterator,
         InnerType,
         Parsed,
         .{

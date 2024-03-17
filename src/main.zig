@@ -5,10 +5,87 @@ const utils = @import("utils.zig");
 const ArgumentInfo = @import("info.zig").ArgumentInfo;
 
 const wrapper = @import("wrapper.zig");
-const ParserWrapper = wrapper.ParserWrapper;
-const ParserCommandWrapper = wrapper.ParserCommandWrapper;
 
 pub const cli = @import("cli.zig");
+
+pub fn ClippyInterface(
+    comptime options: cli.ArgumentIteratorOptions,
+) type {
+    return struct {
+        pub const ArgIterator = cli.ArgumentIterator(options);
+        pub fn Commands(comptime opts: CommandsOptions) type {
+            // TODO: find some way of enforcing that the args type in the command
+            // descriptor is actually the correct arguments type
+
+            comptime var union_fields: []const std.builtin.Type.UnionField = &.{};
+            inline for (opts.commands) |cmd| {
+                union_fields = union_fields ++ .{cmd.toUnionField(false)};
+            }
+
+            comptime var parsed_fields: []const std.builtin.Type.UnionField = &.{};
+            inline for (opts.commands) |cmd| {
+                parsed_fields = parsed_fields ++ .{cmd.toUnionField(true)};
+            }
+
+            comptime var enum_fields: []const std.builtin.Type.EnumField = &.{};
+            inline for (opts.commands, 0..) |cmd, i| {
+                const field: std.builtin.Type.EnumField = .{
+                    .name = @ptrCast(cmd.name),
+                    .value = i,
+                };
+                enum_fields = enum_fields ++ .{field};
+            }
+
+            const tag_enum = @Type(.{ .Enum = .{
+                .tag_type = usize,
+                .fields = enum_fields,
+                .decls = &.{},
+                .is_exhaustive = false,
+            } });
+
+            const CommandsType = @Type(
+                .{ .Union = .{
+                    .layout = .Auto,
+                    .tag_type = tag_enum,
+                    .fields = union_fields,
+                    .decls = &.{},
+                } },
+            );
+
+            const InternalType = @Type(
+                .{ .Union = .{
+                    .layout = .Auto,
+                    .tag_type = tag_enum,
+                    .fields = parsed_fields,
+                    .decls = &.{},
+                } },
+            );
+
+            return wrapper.ParserCommandWrapper(ArgIterator, opts, CommandsType, InternalType);
+        }
+
+        pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
+            const infos = parseableInfo(args);
+
+            // create the fields for returning the arguments
+            comptime var fields: []const std.builtin.Type.StructField = &.{};
+            inline for (infos) |info| {
+                fields = fields ++ .{info.toField()};
+            }
+
+            const InternalType = @Type(
+                .{ .Struct = .{
+                    .layout = .Auto,
+                    .is_tuple = false,
+                    .fields = fields,
+                    .decls = &.{},
+                } },
+            );
+
+            return wrapper.ParserWrapper(ArgIterator, infos, InternalType);
+        }
+    };
+}
 
 /// Argument wrapper for generating help strings and parsing
 pub const ArgumentDescriptor = struct {
@@ -60,82 +137,10 @@ pub const CommandDescriptor = struct {
     }
 };
 
-pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
-    const infos = parseableInfo(args);
-
-    // create the fields for returning the arguments
-    comptime var fields: []const std.builtin.Type.StructField = &.{};
-    inline for (infos) |info| {
-        fields = fields ++ .{info.toField()};
-    }
-
-    const InternalType = @Type(
-        .{ .Struct = .{
-            .layout = .Auto,
-            .is_tuple = false,
-            .fields = fields,
-            .decls = &.{},
-        } },
-    );
-
-    return ParserWrapper(infos, InternalType);
-}
-
 pub const CommandsOptions = struct {
     mutual: type = void,
     commands: []const CommandDescriptor,
 };
-
-pub fn Commands(comptime opts: CommandsOptions) type {
-    // TODO: find some way of enforcing that the args type in the command
-    // descriptor is actually the correct arguments type
-
-    comptime var union_fields: []const std.builtin.Type.UnionField = &.{};
-    inline for (opts.commands) |cmd| {
-        union_fields = union_fields ++ .{cmd.toUnionField(false)};
-    }
-
-    comptime var parsed_fields: []const std.builtin.Type.UnionField = &.{};
-    inline for (opts.commands) |cmd| {
-        parsed_fields = parsed_fields ++ .{cmd.toUnionField(true)};
-    }
-
-    comptime var enum_fields: []const std.builtin.Type.EnumField = &.{};
-    inline for (opts.commands, 0..) |cmd, i| {
-        const field: std.builtin.Type.EnumField = .{
-            .name = @ptrCast(cmd.name),
-            .value = i,
-        };
-        enum_fields = enum_fields ++ .{field};
-    }
-
-    const tag_enum = @Type(.{ .Enum = .{
-        .tag_type = usize,
-        .fields = enum_fields,
-        .decls = &.{},
-        .is_exhaustive = false,
-    } });
-
-    const CommandsType = @Type(
-        .{ .Union = .{
-            .layout = .Auto,
-            .tag_type = tag_enum,
-            .fields = union_fields,
-            .decls = &.{},
-        } },
-    );
-
-    const InternalType = @Type(
-        .{ .Union = .{
-            .layout = .Auto,
-            .tag_type = tag_enum,
-            .fields = parsed_fields,
-            .decls = &.{},
-        } },
-    );
-
-    return ParserCommandWrapper(opts, CommandsType, InternalType);
-}
 
 /// Filter only those arguments with `parse` set to `true`, and initialize the
 /// argument info structure
@@ -183,13 +188,15 @@ const TestArguments = [_]ArgumentDescriptor{
     },
 };
 
+const TestClippy = ClippyInterface(.{});
+
 fn parseArgs(comptime T: type, comptime string: []const u8) !T.Parsed {
     const arg_strings = try utils.fromString(
         std.testing.allocator,
         string,
     );
     defer std.testing.allocator.free(arg_strings);
-    var argitt = cli.ArgIterator.init(arg_strings);
+    var argitt = TestClippy.ArgIterator.init(arg_strings);
 
     var parser = T.init(&argitt);
     while (try argitt.next()) |arg| {
@@ -200,7 +207,7 @@ fn parseArgs(comptime T: type, comptime string: []const u8) !T.Parsed {
 }
 
 test "example arguments" {
-    const Args = Arguments(&TestArguments);
+    const Args = TestClippy.Arguments(&TestArguments);
     const fields = @typeInfo(Args.Parsed).Struct.fields;
     _ = fields;
 
@@ -247,11 +254,11 @@ const MutualTestArguments = [_]ArgumentDescriptor{
 };
 
 test "commands" {
-    const Args1 = Arguments(&TestArguments);
-    const Args2 = Arguments(&MoreTestArguments);
-    const Mutuals = Arguments(&MutualTestArguments);
+    const Args1 = TestClippy.Arguments(&TestArguments);
+    const Args2 = TestClippy.Arguments(&MoreTestArguments);
+    const Mutuals = TestClippy.Arguments(&MutualTestArguments);
 
-    const Cmds = Commands(
+    const Cmds = TestClippy.Commands(
         .{ .mutual = Mutuals, .commands = &.{
             .{ .name = "hello", .args = Args1 },
             .{ .name = "world", .args = Args2 },
