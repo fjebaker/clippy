@@ -8,6 +8,10 @@ const wrapper = @import("wrapper.zig");
 
 pub const cli = @import("cli.zig");
 
+pub const ComptimeError = utils.ComptimeError;
+pub const RuntimeError = utils.RuntimeError;
+pub const Error = utils.Error;
+
 pub fn ClippyInterface(
     comptime options: cli.ArgumentIteratorOptions,
 ) type {
