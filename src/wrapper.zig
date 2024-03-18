@@ -44,7 +44,7 @@ fn WrapperInterface(
         initImpl: fn (*ArgIterator) T,
         parseArgImpl: fn (*T, Arg) anyerror!ParseArgOutcome,
         getParsedImpl: fn (*const T) anyerror!P,
-        generateCompletionImpl: fn (std.mem.Allocator, completion.Shell) anyerror![]const u8,
+        generateCompletionImpl: fn (std.mem.Allocator, completion.Shell, []const u8) anyerror![]const u8,
         writeHelpImpl: fn (anytype, comptime HelpFormatting) anyerror!void,
     },
 ) type {
@@ -62,8 +62,9 @@ fn WrapperInterface(
         fn generateCompletionImpl(
             allocator: std.mem.Allocator,
             shell: completion.Shell,
+            name: []const u8,
         ) ![]const u8 {
-            return try Methods.generateCompletionImpl(allocator, shell);
+            return try Methods.generateCompletionImpl(allocator, shell, name);
         }
 
         pub fn init(itt: *ArgIterator) Self {
@@ -74,8 +75,9 @@ fn WrapperInterface(
         pub fn generateCompletion(
             allocator: std.mem.Allocator,
             shell: completion.Shell,
+            name: []const u8,
         ) ![]const u8 {
-            return try generateCompletionImpl(allocator, shell);
+            return try generateCompletionImpl(allocator, shell, name);
         }
 
         /// Parse the arguments from the argument iterator. This method is to
@@ -204,6 +206,7 @@ pub fn CommandsWrapper(
         fn generateCompletionImpl(
             allocator: std.mem.Allocator,
             shell: completion.Shell,
+            _: []const u8,
         ) ![]const u8 {
             _ = allocator;
             _ = shell;
@@ -349,6 +352,7 @@ pub fn ArgumentsWrapper(
         fn generateCompletionImpl(
             allocator: std.mem.Allocator,
             shell: completion.Shell,
+            name: []const u8,
         ) anyerror![]const u8 {
             // TODO: make this dispatch on different shells correctly
             _ = shell;
@@ -391,7 +395,7 @@ pub fn ArgumentsWrapper(
                 }
             }
 
-            return try writer.finalize("name");
+            return try writer.finalize(name);
         }
     };
 

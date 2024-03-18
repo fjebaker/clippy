@@ -317,7 +317,7 @@ test "everything else" {
 
 test "argument completion" {
     const Args1 = TestClippy.Arguments(&TestArguments);
-    const comp1 = try Args1.generateCompletion(testing.allocator, .Zsh);
+    const comp1 = try Args1.generateCompletion(testing.allocator, .Zsh, "name");
     defer testing.allocator.free(comp1);
 
     try testing.expectEqualStrings(
