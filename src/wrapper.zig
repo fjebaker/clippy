@@ -369,28 +369,27 @@ pub fn ArgumentsWrapper(
                                 &writer,
                                 f.short_name.?,
                                 f.name,
-                                null,
-                                null,
+                                .{},
                             ),
                             .Long => try Comp.writeLongFlag(
                                 &writer,
                                 f.name,
-                                null,
-                                null,
+                                .{},
                             ),
                             .Short => try Comp.writeShortFlag(
                                 &writer,
                                 f.name,
-                                null,
-                                null,
+                                .{},
                             ),
                         }
                     },
                     .Positional => |p| try Comp.writePositional(
                         &writer,
-                        !p.descriptor.required,
                         p.name,
-                        null,
+                        .{
+                            .action = p.descriptor.completion,
+                            .optional = !p.descriptor.required,
+                        },
                     ),
                 }
             }

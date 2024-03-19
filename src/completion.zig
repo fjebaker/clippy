@@ -59,54 +59,56 @@ pub const Shell = enum {
     Zsh,
 };
 
+pub const CompletionOptions = struct {
+    action: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+    optional: bool = false,
+};
+
 pub const ZshCompletionWriter = struct {
     pub fn writeShortLongFlag(
         writer: *CompletionWriter,
         short: []const u8,
         long: []const u8,
-        description: ?[]const u8,
-        action: ?[]const u8,
+        opts: CompletionOptions,
     ) !void {
-        try writeLongFlag(writer, long, description, action);
-        try writeShortFlag(writer, short, description, action);
+        try writeLongFlag(writer, long, opts);
+        try writeShortFlag(writer, short, opts);
     }
 
     pub fn writeLongFlag(
         writer: *CompletionWriter,
         long: []const u8,
-        description: ?[]const u8,
-        action: ?[]const u8,
+        opts: CompletionOptions,
     ) !void {
         try writer.print("'--{s}[{s}]::{s}'", .{
             long,
-            description orelse "",
-            action orelse "()",
+            opts.description orelse "",
+            opts.action orelse "()",
         });
     }
 
     pub fn writeShortFlag(
         writer: *CompletionWriter,
         short: []const u8,
-        description: ?[]const u8,
-        action: ?[]const u8,
+        opts: CompletionOptions,
     ) !void {
         try writer.print("'-{s}[{s}]::{s}'", .{
             short,
-            description orelse "",
-            action orelse "()",
+            opts.description orelse "",
+            opts.action orelse "()",
         });
     }
 
     pub fn writePositional(
         writer: *CompletionWriter,
-        optional: bool,
         name: []const u8,
-        action: ?[]const u8,
+        opts: CompletionOptions,
     ) !void {
         try writer.print("'{s}{s}:{s}'", .{
-            if (optional) "::" else ":",
+            if (opts.optional) "::" else ":",
             name,
-            action orelse "()",
+            opts.action orelse "()",
         });
     }
 };
