@@ -369,17 +369,23 @@ pub fn ArgumentsWrapper(
                                 &writer,
                                 f.short_name.?,
                                 f.name,
-                                .{},
+                                .{
+                                    .action = f.descriptor.completion,
+                                },
                             ),
                             .Long => try Comp.writeLongFlag(
                                 &writer,
                                 f.name,
-                                .{},
+                                .{
+                                    .action = f.descriptor.completion,
+                                },
                             ),
                             .Short => try Comp.writeShortFlag(
                                 &writer,
                                 f.name,
-                                .{},
+                                .{
+                                    .action = f.descriptor.completion,
+                                },
                             ),
                         }
                     },
