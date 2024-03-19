@@ -180,7 +180,7 @@ const TestArguments = [_]ArgumentDescriptor{
         .arg = "-n/--limit value",
         .help = "Limit.",
         .argtype = usize,
-        .completion = "{ls -1}",
+        .completion = "{compadd $(ls -1)}",
     },
     .{
         .arg = "other",
@@ -325,8 +325,8 @@ test "argument completion" {
         \\_arguments_name() {
         \\    _arguments -C \
         \\        ':item:()' \
-        \\        '--limit[]::{ls -1}' \
-        \\        '-n[]::()' \
+        \\        '--limit[]:limit:{compadd $(ls -1)}' \
+        \\        '-n[]:n:{compadd $(ls -1)}' \
         \\        '::other:()' \
         \\        '--flag[]::()' \
         \\        '-f[]::()'

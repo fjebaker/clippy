@@ -81,9 +81,10 @@ pub const ZshCompletionWriter = struct {
         long: []const u8,
         opts: CompletionOptions,
     ) !void {
-        try writer.print("'--{s}[{s}]::{s}'", .{
+        try writer.print("'--{s}[{s}]:{s}:{s}'", .{
             long,
             opts.description orelse "",
+            if (opts.action != null) long else "",
             opts.action orelse "()",
         });
     }
@@ -93,9 +94,10 @@ pub const ZshCompletionWriter = struct {
         short: []const u8,
         opts: CompletionOptions,
     ) !void {
-        try writer.print("'-{s}[{s}]::{s}'", .{
+        try writer.print("'-{s}[{s}]:{s}:{s}'", .{
             short,
             opts.description orelse "",
+            if (opts.action != null) short else "",
             opts.action orelse "()",
         });
     }
