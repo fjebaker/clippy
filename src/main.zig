@@ -54,7 +54,7 @@ pub fn ClippyInterface(
 
             const CommandsType = @Type(
                 .{ .Union = .{
-                    .layout = .Auto,
+                    .layout = .auto,
                     .tag_type = tag_enum,
                     .fields = union_fields,
                     .decls = &.{},
@@ -63,7 +63,7 @@ pub fn ClippyInterface(
 
             const InternalType = @Type(
                 .{ .Union = .{
-                    .layout = .Auto,
+                    .layout = .auto,
                     .tag_type = tag_enum,
                     .fields = parsed_fields,
                     .decls = &.{},
@@ -84,7 +84,7 @@ pub fn ClippyInterface(
 
             const InternalType = @Type(
                 .{ .Struct = .{
-                    .layout = .Auto,
+                    .layout = .auto,
                     .is_tuple = false,
                     .fields = fields,
                     .decls = &.{},
