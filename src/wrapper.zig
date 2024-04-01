@@ -121,7 +121,12 @@ pub fn CommandsWrapper(
     comptime CommandsT: type,
     comptime CommandsParsed: type,
 ) type {
-    const MutualParsed = opts.mutual.Parsed;
+    const has_mutual = @typeInfo(opts.mutual) != .Void;
+    const MutualParsed = if (has_mutual)
+        opts.mutual.Parsed
+    else
+        void;
+
     const Parsed = struct {
         mutual: MutualParsed,
         commands: CommandsParsed,
@@ -135,7 +140,7 @@ pub fn CommandsWrapper(
 
         fn initImpl(itt: *ArgIterator) InnerType {
             return .{
-                .mutual = opts.mutual.init(itt),
+                .mutual = if (has_mutual) opts.mutual.init(itt) else {},
                 .itt = itt,
             };
         }
@@ -164,7 +169,7 @@ pub fn CommandsWrapper(
 
         fn getParsedImpl(self: *const InnerType) anyerror!Parsed {
             return .{
-                .mutual = try self.mutual.getParsed(),
+                .mutual = if (has_mutual) try self.mutual.getParsed() else {},
                 .commands = try self.getCommandsParsed(),
             };
         }
@@ -200,7 +205,15 @@ pub fn CommandsWrapper(
                 }
             }
 
-            return try self.mutual.parseArgImpl(arg);
+            if (has_mutual) {
+                return try self.mutual.parseArgImpl(arg);
+            } else {
+                if (arg.flag) {
+                    return .UnparsedFlag;
+                } else {
+                    return .UnparsedPositional;
+                }
+            }
         }
 
         fn generateCompletionImpl(

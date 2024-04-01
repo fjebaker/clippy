@@ -307,6 +307,21 @@ test "commands" {
         try testing.expectEqualStrings("abc", c.item);
         try testing.expectEqual(false, c.flag);
     }
+
+    const CmdsNoMutual = TestClippy.Commands(
+        .{ .commands = &.{
+            .{ .name = "hello", .args = Args1 },
+            .{ .name = "world", .args = Args2 },
+        } },
+    );
+    {
+        const parsed = try parseArgs(
+            CmdsNoMutual,
+            "world abc",
+        );
+        const c = parsed.commands.world;
+        try testing.expectEqualStrings("abc", c.item);
+    }
 }
 
 test "everything else" {
