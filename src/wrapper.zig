@@ -216,6 +216,7 @@ pub fn CommandsWrapper(
             }
         }
 
+        /// TODO: not implemented yet
         fn generateCompletionImpl(
             allocator: std.mem.Allocator,
             shell: completion.Shell,
@@ -223,6 +224,7 @@ pub fn CommandsWrapper(
         ) ![]const u8 {
             _ = allocator;
             _ = shell;
+            return "";
         }
     };
 
