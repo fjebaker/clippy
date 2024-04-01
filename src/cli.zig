@@ -107,6 +107,11 @@ pub fn ArgumentIterator(
         index: usize = 0,
         counter: usize = 0,
 
+        /// Get the total number of arguments in the argument buffer
+        pub fn argCount(self: *const Self) usize {
+            return self.args.data.len;
+        }
+
         pub fn throwError(err: anyerror, comptime fmt: []const u8, args: anytype) !void {
             try options.report_error_fn(err, fmt, args);
         }
@@ -293,8 +298,11 @@ test "argument iteration" {
         std.testing.allocator,
         "-tf -k hello --thing=that 1 2 5.0 -q",
     );
+
     defer std.testing.allocator.free(args);
     var argitt = ArgIterator.init(args);
+
+    try std.testing.expectEqual(argitt.argCount(), 9);
     try std.testing.expect(try argitt.isAny(null, "thing"));
     try std.testing.expect((try argitt.isAny(null, "thinhjhhg")) == false);
     try argIs((try argitt.next()).?, .{ .flag = true, .string = "t" });
