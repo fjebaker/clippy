@@ -88,6 +88,16 @@ fn WrapperInterface(
             return outcome.isParsed();
         }
 
+        /// Parse the arguments from the argument iterator. This method is to
+        /// be fed one argument at a time. Returns `false` if the argument was
+        /// not used, allowing other parsing code to be used in tandem. Will
+        /// not raise any errors if the argument parsing is invalid.
+        pub fn parseArgForgiving(self: *Self, arg: Arg) bool {
+            const outcome = self.parseArgImpl(arg) catch
+                return false;
+            return outcome.isParsed();
+        }
+
         /// Parses all arguments and exhausts the `ArgIterator`. Returns a
         /// structure containing all the arguments.
         pub fn parseAll(itt: *ArgIterator) !Parsed {
@@ -100,6 +110,17 @@ fn WrapperInterface(
                 }
             }
             return self.getParsed();
+        }
+
+        /// Parses all arguments and exhausts the `ArgIterator`. Returns a
+        /// structure containing all the arguments.  Will not raise any errors
+        /// if the argument parsing is invalid.
+        pub fn parseAllForgiving(itt: *ArgIterator) ?Parsed {
+            var self = Self.init(itt);
+            while (itt.next() catch return null) |arg| {
+                _ = self.parseArgImpl(arg) catch return null;
+            }
+            return self.getParsed() catch return null;
         }
 
         /// Get the parsed argument structure and validate that all required
@@ -335,6 +356,7 @@ pub fn ArgumentsWrapper(
                             if (mask.isSet(i)) return Error.DuplicateFlag;
                             if (f.with_value) {
                                 const next = try itt.getValue();
+                                errdefer itt.rewind();
                                 @field(args, arg_name) = try info.parseString(
                                     next.string,
                                 );

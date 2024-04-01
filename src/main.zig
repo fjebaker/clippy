@@ -216,6 +216,22 @@ fn parseArgs(comptime T: type, comptime string: []const u8) !T.Parsed {
     return try parser.getParsed();
 }
 
+fn parseArgsForgiving(comptime T: type, comptime string: []const u8) !T.Parsed {
+    const arg_strings = try utils.fromString(
+        std.testing.allocator,
+        string,
+    );
+    defer std.testing.allocator.free(arg_strings);
+    var argitt = TestClippy.ArgIterator.init(arg_strings);
+
+    var parser = T.init(&argitt);
+    while (try argitt.next()) |arg| {
+        _ = parser.parseArgForgiving(arg);
+    }
+
+    return try parser.getParsed();
+}
+
 test "example arguments" {
     const Args = TestClippy.Arguments(&TestArguments);
     const fields = @typeInfo(Args.Parsed).Struct.fields;
@@ -238,6 +254,17 @@ test "example arguments" {
             "hello --limit 12 --flag",
         );
         try testing.expectEqual(parsed.limit, 12);
+        try testing.expectEqualStrings(parsed.item, "hello");
+        try testing.expectEqual(parsed.other, null);
+        try testing.expectEqual(true, parsed.flag);
+    }
+
+    {
+        const parsed = try parseArgsForgiving(
+            Args,
+            "hello --flag --limit",
+        );
+        try testing.expectEqual(parsed.limit, null);
         try testing.expectEqualStrings(parsed.item, "hello");
         try testing.expectEqual(parsed.other, null);
         try testing.expectEqual(true, parsed.flag);
@@ -314,6 +341,7 @@ test "commands" {
             .{ .name = "world", .args = Args2 },
         } },
     );
+
     {
         const parsed = try parseArgs(
             CmdsNoMutual,
