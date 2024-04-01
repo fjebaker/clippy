@@ -229,9 +229,9 @@ pub fn ArgumentIterator(
         pub fn throwUnknownFlag(self: *const Self) !void {
             const arg: Arg = self.previous.?;
             if (arg.isShortFlag()) {
-                try throwError(Error.UnknownFlag, "-{s}", .{arg.string});
+                return throwError(Error.UnknownFlag, "-{s}", .{arg.string});
             } else {
-                try throwError(Error.UnknownFlag, "--{s}", .{arg.string});
+                return throwError(Error.UnknownFlag, "--{s}", .{arg.string});
             }
         }
 
@@ -240,12 +240,12 @@ pub fn ArgumentIterator(
             comptime msg: []const u8,
         ) !void {
             const arg: Arg = self.previous.?;
-            try throwError(Error.BadArgument, msg ++ ": '{s}'", .{arg.string});
+            return throwError(Error.BadArgument, msg ++ ": '{s}'", .{arg.string});
         }
 
         pub fn throwTooManyArguments(self: *const Self) !void {
             const arg = self.previous.?;
-            try throwError(
+            return throwError(
                 Error.TooManyArguments,
                 "argument '{s}' is too much",
                 .{arg.string},
@@ -256,7 +256,7 @@ pub fn ArgumentIterator(
             _: *const Self,
             missing_arg_name: []const u8,
         ) !void {
-            try throwError(
+            return throwError(
                 Error.TooFewArguments,
                 "missing argument '{s}'",
                 .{missing_arg_name},
