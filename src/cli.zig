@@ -8,7 +8,7 @@ const Error = utils.Error;
 /// Report the error to standard error and throw it
 fn throwErrorToStdErr(err: anyerror, comptime fmt: []const u8, args: anytype) !void {
     var writer = std.io.getStdErr().writer();
-    try writer.print("{s}: ", @errorName(err));
+    try writer.print("{s}: ", .{@errorName(err)});
     try writer.print(fmt, args);
     return err;
 }
@@ -112,8 +112,9 @@ pub fn ArgumentIterator(
             return self.args.data.len;
         }
 
-        pub fn throwError(err: anyerror, comptime fmt: []const u8, args: anytype) !void {
+        pub fn throwError(err: anyerror, comptime fmt: []const u8, args: anytype) anyerror {
             try options.report_error_fn(err, fmt, args);
+            return err;
         }
         /// Create a copy of the argument interator with all state reset.
         pub fn copy(self: *const Self) Self {

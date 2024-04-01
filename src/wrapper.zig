@@ -319,9 +319,11 @@ pub fn ArgumentsWrapper(
 
         fn getParsedImpl(self: *const InnerType) !Parsed {
             if (checkUnsetRequireds(self.mask)) |unset_name| {
-                _ = unset_name;
-                // TODO: error
-                unreachable;
+                return ArgIterator.throwError(
+                    Error.MissingArgument,
+                    "missing argument '{s}'",
+                    .{unset_name},
+                );
             }
             return self.parsed;
         }
