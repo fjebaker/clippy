@@ -386,4 +386,12 @@ test "argument help" {
 
     const writer = list.writer();
     try Args1.writeHelp(writer, .{});
+
+    try testing.expectEqualStrings(
+        \\    <item>                    Positional argument.
+        \\    [-n/--limit]              Limit.
+        \\    [other]                   Another positional
+        \\    [-f/--flag]               Toggleable
+        \\
+    , list.items);
 }

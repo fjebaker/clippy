@@ -288,7 +288,16 @@ pub fn ArgumentsWrapper(
             inline for (infos) |info| {
                 try writer.writeByteNTimes(' ', help_opts.left_pad);
                 // print the argument itself
-                const name = info.getName();
+                const arg_name = comptime info.getName();
+                const name = switch (info) {
+                    .Flag => |f| switch (f.flag_type) {
+                        .Long => "--" ++ arg_name,
+                        .Short => "-" ++ arg_name,
+                        .ShortAndLong => "-" ++ info.Flag.short_name.? ++ "/--" ++ arg_name,
+                    },
+                    else => arg_name,
+                };
+
                 if (info.isRequired()) {
                     try writer.print("<{s}>", .{name});
                 } else {
