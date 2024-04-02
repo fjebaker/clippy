@@ -389,7 +389,7 @@ test "argument help" {
 
     try testing.expectEqualStrings(
         \\    <item>                    Positional argument.
-        \\    [-n/--limit]              Limit.
+        \\    [-n/--limit value]        Limit.
         \\    [other]                   Another positional
         \\    [-f/--flag]               Toggleable
         \\
