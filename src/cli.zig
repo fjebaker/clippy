@@ -10,6 +10,7 @@ fn throwErrorToStdErr(err: anyerror, comptime fmt: []const u8, args: anytype) !v
     var writer = std.io.getStdErr().writer();
     try writer.print("{s}: ", .{@errorName(err)});
     try writer.print(fmt, args);
+    try writer.writeByte('\n');
     return err;
 }
 
