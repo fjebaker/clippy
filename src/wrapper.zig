@@ -140,6 +140,7 @@ pub fn CommandsWrapper(
     comptime ArgIterator: type,
     comptime opts: CommandsOptions,
     comptime CommandsT: type,
+    // this is the arguments container
     comptime CommandsParsed: type,
 ) type {
     const has_mutual = @typeInfo(opts.mutual) != .Void;
@@ -167,13 +168,21 @@ pub fn CommandsWrapper(
         }
 
         fn writeHelpImpl(writer: anytype, comptime help_opts: HelpFormatting) !void {
-            _ = writer;
-            _ = help_opts;
+            if (has_mutual) {
+                try writer.writeAll("General arguments:\n\n");
+                try opts.mutual.writeHelp(writer, help_opts);
+                try writer.writeAll("\n");
+            }
+
+            try writer.writeAll("Commands:\n");
+            inline for (@typeInfo(CommandsT).Union.fields) |field| {
+                try writer.print("\n {s}\n", .{field.name});
+                try field.type.writeHelp(writer, help_opts);
+            }
         }
 
         fn getCommandsParsed(self: *const InnerType) !CommandsParsed {
-            // TODO: error
-            const cmds = self.commands orelse unreachable;
+            const cmds = self.commands orelse return Error.MissingCommand;
             inline for (@typeInfo(CommandsT).Union.fields) |field| {
                 if (std.mem.eql(u8, @tagName(cmds), field.name)) {
                     var active = @field(cmds, field.name);
@@ -184,8 +193,7 @@ pub fn CommandsWrapper(
                     );
                 }
             }
-            // TODO: error
-            unreachable;
+            return Error.MissingCommand;
         }
 
         fn getParsedImpl(self: *const InnerType) anyerror!Parsed {

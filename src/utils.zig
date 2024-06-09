@@ -11,6 +11,7 @@ pub const RuntimeError = error{
     FlagAsPositional,
     InvalidFlag,
     MissingArgument,
+    MissingCommand,
     TooFewArguments,
     TooManyArguments,
     UnknownFlag,

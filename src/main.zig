@@ -395,3 +395,41 @@ test "argument help" {
         \\
     , list.items);
 }
+
+test "commands help" {
+    const Args1 = TestClippy.Arguments(&TestArguments);
+    const Args2 = TestClippy.Arguments(&MoreTestArguments);
+    const Mutuals = TestClippy.Arguments(&MutualTestArguments);
+
+    const Cmds = TestClippy.Commands(
+        .{ .mutual = Mutuals, .commands = &.{
+            .{ .name = "hello", .args = Args1 },
+            .{ .name = "world", .args = Args2 },
+        } },
+    );
+
+    var list = std.ArrayList(u8).init(testing.allocator);
+    defer list.deinit();
+
+    const writer = list.writer();
+    try Cmds.writeHelp(writer, .{});
+
+    try testing.expectEqualStrings(
+        \\General arguments:
+        \\
+        \\    [--interactive]           Toggleable
+        \\
+        \\Commands:
+        \\
+        \\ hello
+        \\    <item>                    Positional argument.
+        \\    [-n/--limit value]        Limit.
+        \\    [other]                   Another positional
+        \\    [-f/--flag]               Toggleable
+        \\
+        \\ world
+        \\    <item>                    Positional argument.
+        \\    [-c/--control]            Toggleable
+        \\
+    , list.items);
+}
