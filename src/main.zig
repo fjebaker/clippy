@@ -441,12 +441,12 @@ test "commands help" {
 const TestArgumentsDefault = [_]ArgumentDescriptor{
     .{
         .arg = "default_item",
-        .help = "Positional argument.",
+        .help = "Positional argument",
         .default = "hello",
     },
     .{
         .arg = "default_thing",
-        .help = "Positional argument.",
+        .help = "Positional argument",
         .argtype = usize,
         .default = "88",
     },
@@ -455,12 +455,22 @@ const TestArgumentsDefault = [_]ArgumentDescriptor{
 test "default values arguments" {
     const Args = TestClippy.Arguments(&TestArgumentsDefault);
 
-    {
-        const parsed = try parseArgs(
-            Args,
-            "",
-        );
-        try testing.expectEqualStrings(parsed.default_item, "hello");
-        try testing.expectEqual(parsed.default_thing, 88);
-    }
+    const parsed = try parseArgs(
+        Args,
+        "",
+    );
+    try testing.expectEqualStrings(parsed.default_item, "hello");
+    try testing.expectEqual(parsed.default_thing, 88);
+
+    var list = std.ArrayList(u8).init(testing.allocator);
+    defer list.deinit();
+
+    const writer = list.writer();
+    try Args.writeHelp(writer, .{});
+
+    try testing.expectEqualStrings(
+        \\    [default_item]            Positional argument (default: hello).
+        \\    [default_thing]           Positional argument (default: 88).
+        \\
+    , list.items);
 }

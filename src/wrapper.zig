@@ -309,7 +309,11 @@ pub fn ArgumentsWrapper(
                     ' ',
                     help_opts.centre_padding -| (name.len + 2),
                 );
-                try utils.writeWrapped(writer, info.getHelp(), .{
+                comptime var help_string = info.getHelp();
+                if (info.getDescriptor().default) |d| {
+                    help_string = help_string ++ std.fmt.comptimePrint(" (default: {s}).", .{d});
+                }
+                try utils.writeWrapped(writer, help_string, .{
                     .left_pad = help_opts.left_pad + help_opts.centre_padding,
                     .continuation_indent = help_opts.indent,
                     .column_limit = help_opts.help_len,
