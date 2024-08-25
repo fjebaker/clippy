@@ -24,11 +24,11 @@ pub const ComptimeError = error{
 };
 
 fn isValidFlagChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '-';
+    return std.ascii.isAlphanumeric(c) or c == '-' or c == '_';
 }
 
 fn isValidPositionalChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c);
+    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
 pub fn allValidFlagChars(s: []const u8) bool {

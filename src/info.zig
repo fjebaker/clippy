@@ -124,9 +124,11 @@ pub const ArgumentInfo = union(enum) {
 
     /// Is the argument a required argument?
     pub fn isRequired(comptime self: ArgumentInfo) bool {
-        return switch (self) {
-            inline else => |i| i.descriptor.required,
-        };
+        const descr = self.getDescriptor();
+        if (descr.required and descr.default != null) {
+            @compileError("A required argument cannot have a default value");
+        }
+        return descr.required;
     }
 
     /// Get the argument type.
@@ -144,28 +146,43 @@ pub const ArgumentInfo = union(enum) {
             .Positional => |p| p.descriptor.argtype,
         };
 
-        return if (self.isRequired()) T else ?T;
+        if (self.isRequired() or self.getDescriptor().default != null) {
+            return T;
+        } else {
+            return ?T;
+        }
     }
 
+    /// Get the name of the argument.
     pub fn getName(comptime self: ArgumentInfo) []const u8 {
         return switch (self) {
             inline else => |f| f.name,
         };
     }
 
+    /// Get the help string of the argument
     pub fn getHelp(comptime self: ArgumentInfo) []const u8 {
         return self.getDescriptor().help;
     }
 
-    pub fn getDefaultValue(comptime self: ArgumentInfo) GetType(self) {
+    fn getDefaultValue(comptime self: ArgumentInfo) GetType(self) {
+        if (self.getDescriptor().default) |s| {
+            return self.parseString(s) catch
+                @compileError(
+                "Cannot parse default value '" ++
+                    s ++ "' of argument " ++
+                    self.getName(),
+            );
+        }
+
         if (!self.isRequired()) {
             switch (self) {
                 .Positional => return null,
                 .Flag => |f| return if (f.with_value) null else false,
             }
         }
-        const Info = @typeInfo(self.GetType());
 
+        const Info = @typeInfo(self.GetType());
         switch (Info) {
             .Optional => return null,
             .Bool => return false,
@@ -176,9 +193,11 @@ pub const ArgumentInfo = union(enum) {
             },
             else => {},
         }
+
         @compileError("No default value for arg: " ++ self.getName());
     }
 
+    /// Turn the gathered information into a struct field.
     pub fn toField(
         comptime info: ArgumentInfo,
     ) std.builtin.Type.StructField {
@@ -187,12 +206,13 @@ pub const ArgumentInfo = union(enum) {
         return .{
             .name = @ptrCast(info.getName()),
             .type = T,
-            .default_value = @ptrCast(&@as(T, default)),
+            .default_value = @ptrCast(&default),
             .is_comptime = false,
             .alignment = @alignOf(T),
         };
     }
 
+    /// Parse the string component of an argument.
     pub fn parseString(comptime info: ArgumentInfo, s: []const u8) !GetType(info) {
         if (s.len == 0) return Error.BadArgument;
 
@@ -206,7 +226,10 @@ pub const ArgumentInfo = union(enum) {
             .Pointer => |arr| {
                 if (arr.child == u8) {
                     return s;
-                } else @compileError("No method for parsing slices of this type");
+                } else {
+                    // TODO: here's where we'll do multi argument parsing
+                    @compileError("No method for parsing slices of this type");
+                }
             },
             .Int => {
                 return try std.fmt.parseInt(T, s, 10);
@@ -272,6 +295,16 @@ test "arg descriptor parsing" {
     };
     try testArgumentInfoParsing(d3, .{ .Positional = .{
         .descriptor = d3,
+        .name = "pos",
+    } });
+
+    const d4: ArgumentDescriptor = .{
+        .arg = "pos",
+        .help = "",
+        .default = "Hello",
+    };
+    try testArgumentInfoParsing(d4, .{ .Positional = .{
+        .descriptor = d4,
         .name = "pos",
     } });
 

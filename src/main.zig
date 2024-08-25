@@ -22,6 +22,7 @@ pub fn ClippyInterface(
 ) type {
     return struct {
         pub const ArgIterator = cli.ArgumentIterator(options);
+
         pub fn Commands(comptime opts: CommandsOptions) type {
             // TODO: find some way of enforcing that the args type in the command
             // descriptor is actually the correct arguments type
@@ -108,6 +109,9 @@ pub const ArgumentDescriptor = struct {
 
     /// The type the argument should be parsed to.
     argtype: type = []const u8,
+
+    /// Default argument value.
+    default: ?[]const u8 = null,
 
     /// Help string
     help: []const u8,
@@ -432,4 +436,31 @@ test "commands help" {
         \\    [-c/--control]            Toggleable
         \\
     , list.items);
+}
+
+const TestArgumentsDefault = [_]ArgumentDescriptor{
+    .{
+        .arg = "default_item",
+        .help = "Positional argument.",
+        .default = "hello",
+    },
+    .{
+        .arg = "default_thing",
+        .help = "Positional argument.",
+        .argtype = usize,
+        .default = "88",
+    },
+};
+
+test "default values arguments" {
+    const Args = TestClippy.Arguments(&TestArgumentsDefault);
+
+    {
+        const parsed = try parseArgs(
+            Args,
+            "",
+        );
+        try testing.expectEqualStrings(parsed.default_item, "hello");
+        try testing.expectEqual(parsed.default_thing, 88);
+    }
 }
