@@ -143,7 +143,7 @@ pub fn CommandsWrapper(
     // this is the arguments container
     comptime CommandsParsed: type,
 ) type {
-    const has_mutual = @typeInfo(opts.mutual) != .Void;
+    const has_mutual = @typeInfo(opts.mutual) != .void;
     const MutualParsed = if (has_mutual)
         opts.mutual.Parsed
     else
@@ -175,7 +175,7 @@ pub fn CommandsWrapper(
             }
 
             try writer.writeAll("Commands:\n");
-            inline for (@typeInfo(CommandsT).Union.fields) |field| {
+            inline for (@typeInfo(CommandsT).@"union".fields) |field| {
                 try writer.print("\n {s}\n", .{field.name});
                 try field.type.writeHelp(writer, help_opts);
             }
@@ -183,7 +183,7 @@ pub fn CommandsWrapper(
 
         fn getCommandsParsed(self: *const InnerType) !CommandsParsed {
             const cmds = self.commands orelse return Error.MissingCommand;
-            inline for (@typeInfo(CommandsT).Union.fields) |field| {
+            inline for (@typeInfo(CommandsT).@"union".fields) |field| {
                 if (std.mem.eql(u8, @tagName(cmds), field.name)) {
                     var active = @field(cmds, field.name);
                     return @unionInit(
@@ -204,7 +204,7 @@ pub fn CommandsWrapper(
         }
 
         fn instanceCommand(self: *InnerType, s: []const u8) bool {
-            inline for (@typeInfo(CommandsT).Union.fields) |field| {
+            inline for (@typeInfo(CommandsT).@"union".fields) |field| {
                 if (std.mem.eql(u8, s, field.name)) {
                     const instance = @field(field.type, "init")(
                         self.itt,

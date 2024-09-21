@@ -184,9 +184,9 @@ pub const ArgumentInfo = union(enum) {
 
         const Info = @typeInfo(self.GetType());
         switch (Info) {
-            .Optional => return null,
-            .Bool => return false,
-            .Pointer => |arr| {
+            .optional => return null,
+            .bool => return false,
+            .pointer => |arr| {
                 if (arr.child == u8) {
                     return "";
                 }
@@ -217,13 +217,13 @@ pub const ArgumentInfo = union(enum) {
         if (s.len == 0) return Error.BadArgument;
 
         const type_info = @typeInfo(info.GetType());
-        const T = if (type_info == .Optional)
-            type_info.Optional.child
+        const T = if (type_info == .optional)
+            type_info.optional.child
         else
             info.GetType();
 
         switch (@typeInfo(T)) {
-            .Pointer => |arr| {
+            .pointer => |arr| {
                 if (arr.child == u8) {
                     return s;
                 } else {
@@ -231,16 +231,16 @@ pub const ArgumentInfo = union(enum) {
                     @compileError("No method for parsing slices of this type");
                 }
             },
-            .Int => {
+            .int => {
                 return try std.fmt.parseInt(T, s, 10);
             },
-            .Float => {
+            .float => {
                 return try std.fmt.parseFloat(T, s);
             },
-            .Enum => {
+            .@"enum" => {
                 return try std.meta.stringToEnum(T, s);
             },
-            .Struct => {
+            .@"struct" => {
                 if (@hasDecl(T, "initFromArg")) {
                     return try @field(T, "initFromArg")(s);
                 } else {

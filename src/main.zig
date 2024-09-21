@@ -46,7 +46,7 @@ pub fn ClippyInterface(
                 enum_fields = enum_fields ++ .{field};
             }
 
-            const tag_enum = @Type(.{ .Enum = .{
+            const tag_enum = @Type(.{ .@"enum" = .{
                 .tag_type = usize,
                 .fields = enum_fields,
                 .decls = &.{},
@@ -54,7 +54,7 @@ pub fn ClippyInterface(
             } });
 
             const CommandsType = @Type(
-                .{ .Union = .{
+                .{ .@"union" = .{
                     .layout = .auto,
                     .tag_type = tag_enum,
                     .fields = union_fields,
@@ -63,7 +63,7 @@ pub fn ClippyInterface(
             );
 
             const InternalType = @Type(
-                .{ .Union = .{
+                .{ .@"union" = .{
                     .layout = .auto,
                     .tag_type = tag_enum,
                     .fields = parsed_fields,
@@ -84,7 +84,7 @@ pub fn ClippyInterface(
             }
 
             const InternalType = @Type(
-                .{ .Struct = .{
+                .{ .@"struct" = .{
                     .layout = .auto,
                     .is_tuple = false,
                     .fields = fields,
@@ -238,7 +238,7 @@ fn parseArgsForgiving(comptime T: type, comptime string: []const u8) !T.Parsed {
 
 test "example arguments" {
     const Args = TestClippy.Arguments(&TestArguments);
-    const fields = @typeInfo(Args.Parsed).Struct.fields;
+    const fields = @typeInfo(Args.Parsed).@"struct".fields;
     _ = fields;
 
     {
