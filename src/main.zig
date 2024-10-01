@@ -27,9 +27,6 @@ pub fn ClippyInterface(
         pub const ArgIterator = cli.ArgumentIterator(options);
 
         pub fn Commands(comptime opts: CommandsOptions) type {
-            // TODO: find some way of enforcing that the args type in the command
-            // descriptor is actually the correct arguments type
-
             const Mutual = Arguments(opts.mutual);
 
             comptime var union_fields: []const UnionField = &.{};
@@ -37,9 +34,19 @@ pub fn ClippyInterface(
             comptime var enum_fields: []const EnumField = &.{};
 
             comptime var fallback: bool = false;
+            comptime var fallback_completion: ?[]const u8 = null;
 
             inline for (opts.commands, 0..) |cmd, i| {
-                fallback = fallback or cmd.fallback;
+                if (!cmd.fallback and cmd.completion != null)
+                    @compileError("Can only provide completion for the fallback command");
+                if (fallback and cmd.fallback)
+                    @compileError("Only one command may be specified as the fallback command");
+
+                if (cmd.fallback) {
+                    fallback = true;
+                    fallback_completion = cmd.completion;
+                }
+
                 const Args = Arguments(cmd.getArgumentDescriptors());
 
                 union_fields = union_fields ++ .{UnionField{
@@ -177,6 +184,10 @@ pub const CommandDescriptor = struct {
     /// Will match any other command string. There can only be one command with
     /// fallback active
     fallback: bool = false,
+
+    /// Only valid for the fallback option. A string used to generate the shell
+    /// completion for this argument.
+    completion: ?[]const u8 = null,
 
     fn getArgumentDescriptors(
         comptime cmd: CommandDescriptor,
