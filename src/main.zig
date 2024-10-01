@@ -153,6 +153,9 @@ pub const ArgumentDescriptor = struct {
     /// Help string
     help: []const u8,
 
+    /// Should the argument be shown in the help?
+    show_help: bool = true,
+
     /// Is a required argument
     required: bool = false,
 
@@ -185,8 +188,9 @@ pub const CommandDescriptor = struct {
         const args = b: {
             if (cmd.fallback) {
                 break :b .{ArgumentDescriptor{
-                    .arg = "text",
+                    .arg = cmd.name,
                     .help = "",
+                    .show_help = false,
                     .required = true,
                 }} ++ cmd.args;
             } else {
@@ -435,7 +439,7 @@ test "commands-fallback" {
         );
         try testing.expectEqual(false, parsed.mutual.interactive);
         const c = parsed.commands.other;
-        try testing.expectEqualStrings("big", c.text);
+        try testing.expectEqualStrings("big", c.other);
         try testing.expectEqualStrings("other", c.item);
         try testing.expectEqual(true, c.control);
     }
@@ -461,6 +465,10 @@ test "commands-fallback" {
         \\    [-f/--flag]               Toggleable
         \\
         \\ world
+        \\    <item>                    Positional argument.
+        \\    [-c/--control]            Toggleable
+        \\
+        \\ <other>
         \\    <item>                    Positional argument.
         \\    [-c/--control]            Toggleable
         \\

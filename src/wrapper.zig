@@ -309,6 +309,10 @@ pub fn ArgumentsWrapper(
 
         fn writeHelpImpl(writer: anytype, comptime help_opts: HelpFormatting) !void {
             inline for (infos) |info| {
+
+                // skip those that are not to be shown in the help
+                if (info.getDescriptor().show_help == false) continue;
+
                 try writer.writeByteNTimes(' ', help_opts.left_pad);
                 // print the argument itself
                 const name = switch (info) {
@@ -324,6 +328,7 @@ pub fn ArgumentsWrapper(
                     ' ',
                     help_opts.centre_padding -| (name.len + 2),
                 );
+
                 comptime var help_string = info.getHelp();
                 if (info.getDescriptor().default) |d| {
                     help_string = help_string ++ std.fmt.comptimePrint(" (default: {s}).", .{d});
