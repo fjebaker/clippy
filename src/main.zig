@@ -6,6 +6,9 @@ const ArgumentInfo = @import("info.zig").ArgumentInfo;
 
 const wrapper = @import("wrapper.zig");
 
+const UnionField = std.builtin.Type.UnionField;
+const EnumField = std.builtin.Type.EnumField;
+
 pub const cli = @import("cli.zig");
 
 pub const ComptimeError = utils.ComptimeError;
@@ -27,19 +30,31 @@ pub fn ClippyInterface(
             // TODO: find some way of enforcing that the args type in the command
             // descriptor is actually the correct arguments type
 
-            comptime var union_fields: []const std.builtin.Type.UnionField = &.{};
-            inline for (opts.commands) |cmd| {
-                union_fields = union_fields ++ .{cmd.toUnionField(false)};
-            }
+            const Mutual = Arguments(opts.mutual);
 
-            comptime var parsed_fields: []const std.builtin.Type.UnionField = &.{};
-            inline for (opts.commands) |cmd| {
-                parsed_fields = parsed_fields ++ .{cmd.toUnionField(true)};
-            }
+            comptime var union_fields: []const UnionField = &.{};
+            comptime var parsed_fields: []const UnionField = &.{};
+            comptime var enum_fields: []const EnumField = &.{};
 
-            comptime var enum_fields: []const std.builtin.Type.EnumField = &.{};
+            comptime var fallback: bool = false;
+
             inline for (opts.commands, 0..) |cmd, i| {
-                const field: std.builtin.Type.EnumField = .{
+                fallback = fallback or cmd.fallback;
+                const Args = Arguments(cmd.getArgumentDescriptors());
+
+                union_fields = union_fields ++ .{UnionField{
+                    .name = @ptrCast(cmd.name),
+                    .type = Args,
+                    .alignment = @alignOf(Args),
+                }};
+
+                parsed_fields = parsed_fields ++ .{UnionField{
+                    .name = @ptrCast(cmd.name),
+                    .type = Args.Parsed,
+                    .alignment = @alignOf(Args.Parsed),
+                }};
+
+                const field: EnumField = .{
                     .name = @ptrCast(cmd.name),
                     .value = i,
                 };
@@ -71,9 +86,31 @@ pub fn ClippyInterface(
                 } },
             );
 
-            return wrapper.CommandsWrapper(ArgIterator, opts, CommandsType, InternalType);
+            return wrapper.CommandsWrapper(
+                ArgIterator,
+                Mutual,
+                CommandsType,
+                InternalType,
+                fallback,
+            );
         }
 
+        /// Create an Arguments wrapper for parsing arguments for a given set
+        /// of argument descriptors.
+        ///
+        /// The resulting struct has the standard wrapper interface and defined
+        /// the following methods:
+        /// - `fn generateCompletion(Allocator, Shell, []const u8) ![]const u8`
+        /// - `fn writeHelp(writer, HelpFormatting) !void`
+        ///
+        /// - `fn parseArg(Arg) !bool`
+        /// - `fn parseArgForgiving(Arg) bool`
+        /// - `fn getParsed(*ArgIterator) !Parsed`
+        ///
+        /// - `fn parseAll(*ArgIterator) !Parsed`
+        /// - `fn parseAllForgiving(*ArgIterator) ?Parsed`
+        ///
+        /// Most standard usage will only need to use `parseAll`.
         pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
             const infos = parseableInfo(args);
 
@@ -132,26 +169,37 @@ pub const CommandDescriptor = struct {
     name: []const u8,
 
     /// Arguments associated with this subcommand
-    args: type,
+    args: []const ArgumentDescriptor,
 
-    fn toUnionField(
+    /// Will match any other command string. There can only be one command with
+    /// fallback active
+    fallback: bool = false,
+
+    fn getArgumentDescriptors(
         comptime cmd: CommandDescriptor,
-        comptime parsed_type: bool,
-    ) std.builtin.Type.UnionField {
+    ) []const ArgumentDescriptor {
         if (!utils.allValidPositionalChars(cmd.name))
-            @compileError("Invalid command name");
+            @compileError("Invalid command name: " ++ cmd.name);
 
-        const T = if (parsed_type) cmd.args.Parsed else cmd.args;
-        return .{
-            .name = @ptrCast(cmd.name),
-            .type = T,
-            .alignment = @alignOf(T),
+        // TODO: fallback adds an argument
+        const args = b: {
+            if (cmd.fallback) {
+                break :b .{ArgumentDescriptor{
+                    .arg = "text",
+                    .help = "",
+                    .required = true,
+                }} ++ cmd.args;
+            } else {
+                break :b cmd.args;
+            }
         };
+
+        return args;
     }
 };
 
 pub const CommandsOptions = struct {
-    mutual: type = void,
+    mutual: []const ArgumentDescriptor = &.{},
     commands: []const CommandDescriptor,
 };
 
@@ -295,9 +343,9 @@ const MutualTestArguments = [_]ArgumentDescriptor{
 };
 
 test "commands" {
-    const Args1 = TestClippy.Arguments(&TestArguments);
-    const Args2 = TestClippy.Arguments(&MoreTestArguments);
-    const Mutuals = TestClippy.Arguments(&MutualTestArguments);
+    const Args1 = &TestArguments;
+    const Args2 = &MoreTestArguments;
+    const Mutuals = &MutualTestArguments;
 
     const Cmds = TestClippy.Commands(
         .{ .mutual = Mutuals, .commands = &.{
@@ -356,6 +404,69 @@ test "commands" {
     }
 }
 
+test "commands-fallback" {
+    const Args1 = &TestArguments;
+    const Args2 = &MoreTestArguments;
+    const Mutuals = &MutualTestArguments;
+
+    const CmdsWildcard = TestClippy.Commands(
+        .{ .mutual = Mutuals, .commands = &.{
+            .{ .name = "hello", .args = Args1 },
+            .{ .name = "world", .args = Args2 },
+            .{ .name = "other", .args = Args2, .fallback = true },
+        } },
+    );
+
+    {
+        const parsed = try parseArgs(
+            CmdsWildcard,
+            "hello abc --flag",
+        );
+        try testing.expectEqual(false, parsed.mutual.interactive);
+        const c = parsed.commands.hello;
+        try testing.expectEqualStrings("abc", c.item);
+        try testing.expectEqual(true, c.flag);
+    }
+
+    {
+        const parsed = try parseArgs(
+            CmdsWildcard,
+            "big other -c",
+        );
+        try testing.expectEqual(false, parsed.mutual.interactive);
+        const c = parsed.commands.other;
+        try testing.expectEqualStrings("big", c.text);
+        try testing.expectEqualStrings("other", c.item);
+        try testing.expectEqual(true, c.control);
+    }
+
+    var list = std.ArrayList(u8).init(testing.allocator);
+    defer list.deinit();
+
+    const writer = list.writer();
+
+    try CmdsWildcard.writeHelp(writer, .{});
+
+    try testing.expectEqualStrings(
+        \\General arguments:
+        \\
+        \\    [--interactive]           Toggleable
+        \\
+        \\Commands:
+        \\
+        \\ hello
+        \\    <item>                    Positional argument.
+        \\    [-n/--limit value]        Limit.
+        \\    [other]                   Another positional
+        \\    [-f/--flag]               Toggleable
+        \\
+        \\ world
+        \\    <item>                    Positional argument.
+        \\    [-c/--control]            Toggleable
+        \\
+    , list.items);
+}
+
 test "everything else" {
     _ = @import("utils.zig");
     _ = @import("cli.zig");
@@ -401,9 +512,9 @@ test "argument help" {
 }
 
 test "commands help" {
-    const Args1 = TestClippy.Arguments(&TestArguments);
-    const Args2 = TestClippy.Arguments(&MoreTestArguments);
-    const Mutuals = TestClippy.Arguments(&MutualTestArguments);
+    const Args1 = &TestArguments;
+    const Args2 = &MoreTestArguments;
+    const Mutuals = &MutualTestArguments;
 
     const Cmds = TestClippy.Commands(
         .{ .mutual = Mutuals, .commands = &.{

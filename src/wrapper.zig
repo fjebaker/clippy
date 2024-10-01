@@ -138,16 +138,20 @@ fn WrapperInterface(
 
 pub fn CommandsWrapper(
     comptime ArgIterator: type,
-    comptime opts: CommandsOptions,
+    comptime Mutual: type,
     comptime CommandsT: type,
     // this is the arguments container
     comptime CommandsParsed: type,
+    comptime fallback: bool,
 ) type {
-    const has_mutual = @typeInfo(opts.mutual) != .void;
+    const has_mutual = @typeInfo(Mutual) != .void;
     const MutualParsed = if (has_mutual)
-        opts.mutual.Parsed
+        Mutual.Parsed
     else
         void;
+
+    const CommandTFields = @typeInfo(CommandsT).@"union".fields;
+    const fallback_index = CommandTFields.len - 1;
 
     const Parsed = struct {
         mutual: MutualParsed,
@@ -157,12 +161,12 @@ pub fn CommandsWrapper(
     const InnerType = struct {
         const InnerType = @This();
         itt: *ArgIterator,
-        mutual: opts.mutual,
+        mutual: Mutual,
         commands: ?CommandsT = null,
 
         fn initImpl(itt: *ArgIterator) InnerType {
             return .{
-                .mutual = if (has_mutual) opts.mutual.init(itt) else {},
+                .mutual = if (has_mutual) Mutual.init(itt) else {},
                 .itt = itt,
             };
         }
@@ -170,20 +174,24 @@ pub fn CommandsWrapper(
         fn writeHelpImpl(writer: anytype, comptime help_opts: HelpFormatting) !void {
             if (has_mutual) {
                 try writer.writeAll("General arguments:\n\n");
-                try opts.mutual.writeHelp(writer, help_opts);
+                try Mutual.writeHelp(writer, help_opts);
                 try writer.writeAll("\n");
             }
 
             try writer.writeAll("Commands:\n");
-            inline for (@typeInfo(CommandsT).@"union".fields) |field| {
-                try writer.print("\n {s}\n", .{field.name});
+            inline for (CommandTFields, 0..) |field, index| {
+                if (fallback and fallback_index == index) {
+                    try writer.print("\n <{s}>\n", .{field.name});
+                } else {
+                    try writer.print("\n {s}\n", .{field.name});
+                }
                 try field.type.writeHelp(writer, help_opts);
             }
         }
 
         fn getCommandsParsed(self: *const InnerType) !CommandsParsed {
             const cmds = self.commands orelse return Error.MissingCommand;
-            inline for (@typeInfo(CommandsT).@"union".fields) |field| {
+            inline for (CommandTFields) |field| {
                 if (std.mem.eql(u8, @tagName(cmds), field.name)) {
                     var active = @field(cmds, field.name);
                     return @unionInit(
@@ -203,9 +211,11 @@ pub fn CommandsWrapper(
             };
         }
 
-        fn instanceCommand(self: *InnerType, s: []const u8) bool {
-            inline for (@typeInfo(CommandsT).@"union".fields) |field| {
-                if (std.mem.eql(u8, s, field.name)) {
+        fn parseCommandString(self: *InnerType, s: []const u8) bool {
+            inline for (CommandTFields, 0..) |field, index| {
+                const is_fallback = fallback and (index == fallback_index);
+                const name_matches = std.mem.eql(u8, s, field.name);
+                if (is_fallback or name_matches) {
                     const instance = @field(field.type, "init")(
                         self.itt,
                     );
@@ -214,6 +224,11 @@ pub fn CommandsWrapper(
                         field.name,
                         instance,
                     );
+                    if (is_fallback) {
+                        _ = @field(self.commands.?, field.name).parseArgImpl(
+                            .{ .flag = false, .string = s },
+                        ) catch unreachable;
+                    }
                     return true;
                 }
             }
@@ -229,7 +244,7 @@ pub fn CommandsWrapper(
                     },
                 }
             } else if (!arg.flag) {
-                if (self.instanceCommand(arg.string)) {
+                if (self.parseCommandString(arg.string)) {
                     return .ParsedCommand;
                 }
             }
