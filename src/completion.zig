@@ -59,6 +59,10 @@ pub const Shell = enum {
     Zsh,
 };
 
+pub const Opts = struct {
+    shell: Shell,
+};
+
 pub const CompletionOptions = struct {
     action: ?[]const u8 = null,
     description: ?[]const u8 = null,

@@ -98,6 +98,7 @@ pub fn ClippyInterface(
                 Mutual,
                 CommandsType,
                 InternalType,
+                opts.commands,
                 fallback,
             );
         }
@@ -177,6 +178,9 @@ pub const ArgumentDescriptor = struct {
 pub const CommandDescriptor = struct {
     /// Command name
     name: []const u8,
+
+    /// Help string
+    help: []const u8,
 
     /// Arguments associated with this subcommand
     args: []const ArgumentDescriptor,
@@ -364,8 +368,8 @@ test "commands" {
 
     const Cmds = TestClippy.Commands(
         .{ .mutual = Mutuals, .commands = &.{
-            .{ .name = "hello", .args = Args1 },
-            .{ .name = "world", .args = Args2 },
+            .{ .name = "hello", .args = Args1, .help = "Hello command" },
+            .{ .name = "world", .args = Args2, .help = "world command" },
         } },
     );
 
@@ -404,8 +408,8 @@ test "commands" {
 
     const CmdsNoMutual = TestClippy.Commands(
         .{ .commands = &.{
-            .{ .name = "hello", .args = Args1 },
-            .{ .name = "world", .args = Args2 },
+            .{ .name = "hello", .args = Args1, .help = "hello command" },
+            .{ .name = "world", .args = Args2, .help = "world command" },
         } },
     );
 
@@ -426,9 +430,14 @@ test "commands-fallback" {
 
     const CmdsWildcard = TestClippy.Commands(
         .{ .mutual = Mutuals, .commands = &.{
-            .{ .name = "hello", .args = Args1 },
-            .{ .name = "world", .args = Args2 },
-            .{ .name = "other", .args = Args2, .fallback = true },
+            .{ .name = "hello", .args = Args1, .help = "hello command" },
+            .{ .name = "world", .args = Args2, .help = "world command" },
+            .{
+                .name = "other",
+                .args = Args2,
+                .fallback = true,
+                .help = "other command",
+            },
         } },
     );
 
@@ -484,6 +493,57 @@ test "commands-fallback" {
         \\    [-c/--control]            Toggleable
         \\
     , list.items);
+
+    const comp1 = try CmdsWildcard.generateCompletion(testing.allocator, .Zsh, "name");
+    defer testing.allocator.free(comp1);
+
+    try testing.expectEqualStrings(
+        \\_arguments_name_sub_hello() {
+        \\    _arguments -C \
+        \\        ':item:()' \
+        \\        '--limit[]:limit:{compadd $(ls -1)}' \
+        \\        '-n[]:n:{compadd $(ls -1)}' \
+        \\        '::other:()' \
+        \\        '--flag[]::()' \
+        \\        '-f[]::()'
+        \\}
+        \\_arguments_name_sub_world() {
+        \\    _arguments -C \
+        \\        ':item:()' \
+        \\        '--control[]::()' \
+        \\        '-c[]::()'
+        \\}
+        \\_arguments_name_sub_other() {
+        \\    _arguments -C \
+        \\        ':other:()' \
+        \\        ':item:()' \
+        \\        '--control[]::()' \
+        \\        '-c[]::()'
+        \\}
+        \\_arguments_name() {
+        \\    local line state subcmds
+        \\    subcmds=(
+        \\        'hello:hello command'
+        \\        'world:world command'
+        \\        'other:other command'
+        \\    )
+        \\    _arguments \
+        \\        '1:command:subcmds' \
+        \\        '*::arg:->args'
+        \\    case $line[1] in
+        \\        hello)
+        \\            _arguments_name_sub_hello
+        \\        ;;
+        \\        world)
+        \\            _arguments_name_sub_world
+        \\        ;;
+        \\        *)
+        \\            _arguments_name_sub_other
+        \\        ;;
+        \\    esac
+        \\}
+        \\
+    , comp1);
 }
 
 test "everything else" {
@@ -537,8 +597,8 @@ test "commands help" {
 
     const Cmds = TestClippy.Commands(
         .{ .mutual = Mutuals, .commands = &.{
-            .{ .name = "hello", .args = Args1 },
-            .{ .name = "world", .args = Args2 },
+            .{ .name = "hello", .args = Args1, .help = "hello command" },
+            .{ .name = "world", .args = Args2, .help = "world command" },
         } },
     );
 

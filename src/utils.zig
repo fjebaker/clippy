@@ -131,3 +131,12 @@ pub fn writeWrapped(writer: anytype, text: []const u8, opts: WrappingOptions) !v
         try writer.writeAll(word);
     }
 }
+
+/// Get the type of a tag struct in a union
+pub fn TagType(comptime T: type, comptime name: []const u8) type {
+    const fields = @typeInfo(T).@"union".fields;
+    inline for (fields) |f| {
+        if (std.mem.eql(u8, f.name, name)) return f.type;
+    }
+    @compileError("No field named " ++ name);
+}

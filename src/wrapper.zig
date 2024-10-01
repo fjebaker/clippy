@@ -9,7 +9,7 @@ const Error = utils.Error;
 const Arg = cli.Arg;
 
 const ArgumentInfo = @import("info.zig").ArgumentInfo;
-const CommandsOptions = @import("main.zig").CommandsOptions;
+const CommandDescriptor = @import("main.zig").CommandDescriptor;
 
 const ParseArgOutcome = enum {
     ParsedFlag,
@@ -44,7 +44,7 @@ fn WrapperInterface(
         initImpl: fn (*ArgIterator) T,
         parseArgImpl: fn (*T, Arg) anyerror!ParseArgOutcome,
         getParsedImpl: fn (*const T) anyerror!P,
-        generateCompletionImpl: fn (std.mem.Allocator, completion.Shell, []const u8) anyerror![]const u8,
+        generateCompletionImpl: fn (std.mem.Allocator, completion.Opts, []const u8) anyerror![]const u8,
         writeHelpImpl: fn (anytype, comptime HelpFormatting) anyerror!void,
     },
 ) type {
@@ -64,7 +64,11 @@ fn WrapperInterface(
             shell: completion.Shell,
             name: []const u8,
         ) ![]const u8 {
-            return try Methods.generateCompletionImpl(allocator, shell, name);
+            return try Methods.generateCompletionImpl(
+                allocator,
+                .{ .shell = shell },
+                name,
+            );
         }
 
         pub fn init(itt: *ArgIterator) Self {
@@ -142,6 +146,7 @@ pub fn CommandsWrapper(
     comptime CommandsT: type,
     // this is the arguments container
     comptime CommandsParsed: type,
+    comptime CommandDescriptors: []const CommandDescriptor,
     comptime fallback: bool,
 ) type {
     const has_mutual = @typeInfo(Mutual) != .void;
@@ -263,12 +268,74 @@ pub fn CommandsWrapper(
         /// TODO: not implemented yet
         fn generateCompletionImpl(
             allocator: std.mem.Allocator,
-            shell: completion.Shell,
-            _: []const u8,
+            opts: completion.Opts,
+            name: []const u8,
         ) ![]const u8 {
-            _ = allocator;
-            _ = shell;
-            return "";
+            var writer = std.ArrayList(u8).init(allocator);
+            defer writer.deinit();
+
+            var arena = std.heap.ArenaAllocator.init(allocator);
+            defer arena.deinit();
+            const alloc = arena.allocator();
+
+            // write the completion functions for each sub command
+            inline for (CommandTFields) |field| {
+                const T = utils.TagType(CommandsT, field.name);
+
+                const full_name = try std.mem.join(
+                    alloc,
+                    "_",
+                    &.{ name, "sub", field.name },
+                );
+                const c = try T.generateCompletion(
+                    alloc,
+                    opts.shell,
+                    full_name,
+                );
+
+                try writer.appendSlice(c);
+            }
+
+            var case_body = std.ArrayList(u8).init(alloc);
+            try case_body.appendSlice("    case $line[1] in\n");
+
+            try writer.writer().print(
+                \\_arguments_{s}() {{
+                \\    local line state subcmds
+                \\    subcmds=(
+                \\
+            , .{name});
+            inline for (CommandDescriptors) |cd| {
+                try writer.writer().print(
+                    \\        '{s}:{s}'
+                    \\
+                , .{ cd.name, cd.help });
+
+                const match = if (cd.fallback)
+                    "*"
+                else
+                    cd.name;
+
+                try case_body.writer().print(
+                    \\        {s})
+                    \\            _arguments_{s}_sub_{s}
+                    \\        ;;
+                    \\
+                , .{ match, name, cd.name });
+            }
+            try case_body.appendSlice("    esac\n");
+
+            try writer.appendSlice(
+                \\    )
+                \\    _arguments \
+                \\        '1: :{_describe 'command' subcmds}' \
+                \\        '*:: :->args'
+                \\
+            );
+            try writer.appendSlice(case_body.items);
+            try writer.appendSlice("}\n");
+
+            return writer.toOwnedSlice();
         }
     };
 
@@ -425,7 +492,7 @@ pub fn ArgumentsWrapper(
 
         fn generateCompletionImpl(
             allocator: std.mem.Allocator,
-            shell: completion.Shell,
+            shell: completion.Opts,
             name: []const u8,
         ) anyerror![]const u8 {
             // TODO: make this dispatch on different shells correctly
