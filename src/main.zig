@@ -9,7 +9,7 @@ const wrapper = @import("wrapper.zig");
 const UnionField = std.builtin.Type.UnionField;
 const EnumField = std.builtin.Type.EnumField;
 
-pub const cli = @import("cli.zig");
+const cli = @import("cli.zig");
 
 pub const ComptimeError = utils.ComptimeError;
 pub const RuntimeError = utils.RuntimeError;
@@ -24,6 +24,7 @@ pub fn ClippyInterface(
     comptime options: cli.ArgumentIteratorOptions,
 ) type {
     return struct {
+        pub const Arg = cli.Arg;
         pub const ArgIterator = cli.ArgumentIterator(options);
 
         pub fn Commands(comptime opts: CommandsOptions) type {

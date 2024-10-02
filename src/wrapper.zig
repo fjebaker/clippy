@@ -116,6 +116,37 @@ fn WrapperInterface(
             return self.getParsed();
         }
 
+        pub const ParsedPositional = struct {
+            parsed: Parsed,
+            positional: []const Arg,
+        };
+
+        /// Parses all arguments and exhausts the `ArgIterator`. Returns a
+        /// structure containing all the arguments and the unparsed positional
+        /// arguments. Called must call `deinit`.
+        pub fn parseAllKeepPositional(
+            allocator: std.mem.Allocator,
+            itt: *ArgIterator,
+        ) !ParsedPositional {
+            var list = std.ArrayList(Arg).init(allocator);
+            defer list.deinit();
+
+            var self = Self.init(itt);
+            while (try itt.next()) |arg| {
+                switch (try self.parseArgImpl(arg)) {
+                    .UnparsedFlag => try itt.throwUnknownFlag(),
+                    .UnparsedPositional => {
+                        try list.append(arg);
+                    },
+                    else => {},
+                }
+            }
+            return .{
+                .parsed = try self.getParsed(),
+                .positional = try list.toOwnedSlice(),
+            };
+        }
+
         /// Parses all arguments and exhausts the `ArgIterator`. Returns a
         /// structure containing all the arguments.  Will not raise any errors
         /// if the argument parsing is invalid.
