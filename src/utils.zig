@@ -11,6 +11,7 @@ pub const RuntimeError = error{
     FlagAsPositional,
     InvalidFlag,
     MissingArgument,
+    MissingFlagValue,
     MissingCommand,
     TooFewArguments,
     TooManyArguments,
@@ -19,7 +20,6 @@ pub const RuntimeError = error{
 
 pub const ComptimeError = error{
     // comptime parser errors
-    MalformedDescriptor,
     IncompatibleTypes,
 };
 
