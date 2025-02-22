@@ -15,7 +15,6 @@ pub const ArgumentDescriptor = struct {
     /// should just be `-f`, long flags `--flag`, and short and long
     /// `-f/--flag`. If it is a flag, `--flag value` is to mean the flag should
     /// accept a value, otherwise it is treated as a boolean.
-    /// To slurp positionals, use `arg_name...`.
     arg: []const u8,
 
     /// Help string
@@ -58,9 +57,7 @@ const Argument = struct {
             accepts_value: bool = false,
             type: enum { short, long, short_and_long } = .short,
         },
-        positional: struct {
-            variadic: bool = false,
-        },
+        positional: struct {},
     },
     name: []const u8,
 
@@ -118,20 +115,13 @@ const Argument = struct {
     }
 
     fn interpretAsPositional(desc: ArgumentDescriptor) !Argument {
-        var variadic = false;
-        var name = desc.arg;
-        if (desc.arg.len >= 3 and std.mem.eql(u8, desc.arg[desc.arg.len - 3 ..], "...")) {
-            variadic = true;
-            name = desc.arg[0 .. desc.arg.len - 3];
-        }
-
-        if (!utils.allValidPositionalChars(name))
+        if (!utils.allValidPositionalChars(desc.arg))
             return ArgumentError.InvalidArgName;
 
         return .{
             .desc = desc,
-            .info = .{ .positional = .{ .variadic = variadic } },
-            .name = name,
+            .info = .{ .positional = .{} },
+            .name = desc.arg,
         };
     }
 
@@ -154,7 +144,7 @@ const Argument = struct {
     }
 
     /// Use the Argument information to parse a `std.builtin.Type.StructField`.
-    pub fn makeField(comptime arg: Argument) std.builtin.Type.StructField {
+    fn makeField(comptime arg: Argument) std.builtin.Type.StructField {
         var default: ?*const anyopaque = null;
         const InnerT: type = b: {
             switch (arg.info) {
@@ -271,13 +261,6 @@ test "arg descriptor parsing" {
         .name = "pos",
         .info = .{ .positional = .{} },
     });
-
-    const d5: ArgumentDescriptor = .{ .arg = "pos...", .help = "" };
-    try testArgumentInfoParsing(d5, .{
-        .desc = d5,
-        .name = "pos",
-        .info = .{ .positional = .{ .variadic = true } },
-    });
 }
 
 fn ArgumentsFromDescriptors(comptime args: []const ArgumentDescriptor) []const Argument {
@@ -298,6 +281,7 @@ const ParseError = error{
     ExpectedPositional,
 };
 
+/// The argument parsing interface.
 pub fn ArgParser(comptime A: anytype) type {
     const mode: enum { commands, arguments } = switch (@typeInfo(@TypeOf(A))) {
         .pointer => if (std.meta.Child(@TypeOf(A)) == Argument)
@@ -320,23 +304,19 @@ pub fn ArgParser(comptime A: anytype) type {
         )),
     };
 
-    const Mask = std.bit_set.StaticBitSet(switch (mode) {
-        .commands => 0,
-        .arguments => A.len,
-    });
-
     const SubParser = switch (mode) {
-        .arguments => void,
+        .arguments => std.bit_set.StaticBitSet(A.len),
         .commands => ?A,
     };
     const sub_parser_init: SubParser = switch (mode) {
-        .arguments => {},
+        .arguments => SubParser.initEmpty(),
         .commands => null,
     };
 
     return struct {
         const Self = @This();
 
+        /// The generated struct that contains the parsed arguments.
         pub const Parsed = b: switch (mode) {
             .arguments => break :b ParsedType(A),
             .commands => {
@@ -360,12 +340,13 @@ pub fn ArgParser(comptime A: anytype) type {
             },
         };
 
+        /// Options for controlling the parser.
         pub const ParseOptions = struct {
+            /// Do not throw errors but silently ignore them.
             forgiving: bool = false,
         };
 
         allocator: ?std.mem.Allocator = null,
-        mask: Mask = Mask.initEmpty(),
         _sub_parser: SubParser = sub_parser_init,
         _parsed: Parsed = switch (mode) {
             .arguments => initWithDefaults(Parsed),
@@ -374,6 +355,7 @@ pub fn ArgParser(comptime A: anytype) type {
         itt: *cli.ArgumentIterator,
         opts: ParseOptions,
 
+        /// Initialise an argument parser with given options.
         pub fn init(itt: *cli.ArgumentIterator, opts: ParseOptions) Self {
             return .{ .itt = itt, .opts = opts };
         }
@@ -426,7 +408,7 @@ pub fn ArgParser(comptime A: anytype) type {
                 if (a.matches(arg)) {
                     switch (a.info) {
                         .flag => |f| {
-                            if (self.mask.isSet(i))
+                            if (self._sub_parser.isSet(i))
                                 return ParseError.DuplicateArgument;
 
                             if (f.accepts_value) {
@@ -439,16 +421,16 @@ pub fn ArgParser(comptime A: anytype) type {
                                 @field(self._parsed, a.name) = true;
                             }
 
-                            self.mask.set(i);
+                            self._sub_parser.set(i);
                             return;
                         },
                         .positional => {
-                            if (!self.mask.isSet(i)) {
+                            if (!self._sub_parser.isSet(i)) {
                                 @field(self._parsed, a.name) = try parseStringAs(
                                     a.InnerType(),
                                     arg.string,
                                 );
-                                self.mask.set(i);
+                                self._sub_parser.set(i);
                                 return;
                             }
                         },
@@ -465,12 +447,15 @@ pub fn ArgParser(comptime A: anytype) type {
             };
         }
 
+        /// Callback functions that may be given to the parser with a specific context.
         pub fn ParseCallbacks(comptime T: type) type {
             return struct {
+                /// Called during `InvalidArgument`
                 unhandled_arg: *const fn (ctx: T, parser: *Self, arg: cli.Arg) anyerror!void,
             };
         }
 
+        /// Parse all arguments with a context for controlling the callback functions.
         pub fn parseAllCtx(
             self: *Self,
             ctx: anytype,
@@ -487,6 +472,7 @@ pub fn ArgParser(comptime A: anytype) type {
             return self._parsed;
         }
 
+        /// Parse all arguments, returning the `Parsed` struct.
         pub fn parseAll(self: *Self) !Parsed {
             const Ctx = struct {
                 fn unhandled_arg(_: @This(), _: *Self, _: cli.Arg) anyerror!void {
@@ -547,7 +533,6 @@ fn testParseArgs(comptime Parser: type, comptime string: []const u8) !Parser.Par
     );
     defer std.testing.allocator.free(arg_strings);
     var argitt = cli.ArgumentIterator.init(arg_strings);
-
     var parser = Parser.init(&argitt, .{ .forgiving = true });
     return try parser.parseAll();
 }
