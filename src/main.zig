@@ -77,7 +77,7 @@ const Argument = struct {
         };
     }
 
-    fn parseAsFlag(desc: ArgumentDescriptor) !Argument {
+    fn interpretAsFlag(desc: ArgumentDescriptor) !Argument {
         std.debug.assert(desc.arg[0] == '-');
         var arg: Argument = .{
             .desc = desc,
@@ -117,7 +117,7 @@ const Argument = struct {
         return arg;
     }
 
-    fn parseAsPositional(desc: ArgumentDescriptor) !Argument {
+    fn interpretAsPositional(desc: ArgumentDescriptor) !Argument {
         var variadic = false;
         var name = desc.arg;
         if (desc.arg.len >= 3 and std.mem.eql(u8, desc.arg[desc.arg.len - 3 ..], "...")) {
@@ -138,9 +138,9 @@ const Argument = struct {
     fn fromDescriptor(desc: ArgumentDescriptor) !Argument {
         if (desc.arg.len == 0) return ArgumentError.MalformedDescriptor;
         const arg = if (desc.arg[0] == '-')
-            try parseAsFlag(desc)
+            try interpretAsFlag(desc)
         else
-            try parseAsPositional(desc);
+            try interpretAsPositional(desc);
 
         return arg;
     }
@@ -236,79 +236,48 @@ fn testArgumentInfoParsing(
 }
 
 test "arg descriptor parsing" {
-    const d1: ArgumentDescriptor = .{
-        .arg = "-n/--limit value",
-        .help = "",
-    };
-    try testArgumentInfoParsing(
-        d1,
-        .{
-            .desc = d1,
-            .name = "limit",
-            .info = .{ .flag = .{
-                .short_name = "n",
-                .accepts_value = true,
-                .type = .short_and_long,
-            } },
-        },
-    );
+    const d1: ArgumentDescriptor = .{ .arg = "-n/--limit value", .help = "" };
+    try testArgumentInfoParsing(d1, .{
+        .desc = d1,
+        .name = "limit",
+        .info = .{ .flag = .{
+            .short_name = "n",
+            .accepts_value = true,
+            .type = .short_and_long,
+        } },
+    });
 
-    const d2: ArgumentDescriptor = .{
-        .arg = "-n/--limit",
-        .help = "",
-    };
-    try testArgumentInfoParsing(
-        d2,
-        .{
-            .desc = d2,
-            .name = "limit",
-            .info = .{ .flag = .{
-                .short_name = "n",
-                .accepts_value = false,
-                .type = .short_and_long,
-            } },
-        },
-    );
+    const d2: ArgumentDescriptor = .{ .arg = "-n/--limit", .help = "" };
+    try testArgumentInfoParsing(d2, .{
+        .desc = d2,
+        .name = "limit",
+        .info = .{ .flag = .{
+            .short_name = "n",
+            .accepts_value = false,
+            .type = .short_and_long,
+        } },
+    });
 
-    const d3: ArgumentDescriptor = .{
-        .arg = "pos",
-        .help = "",
-    };
-    try testArgumentInfoParsing(
-        d3,
-        .{
-            .desc = d3,
-            .name = "pos",
-            .info = .{ .positional = .{} },
-        },
-    );
+    const d3: ArgumentDescriptor = .{ .arg = "pos", .help = "" };
+    try testArgumentInfoParsing(d3, .{
+        .desc = d3,
+        .name = "pos",
+        .info = .{ .positional = .{} },
+    });
 
-    const d4: ArgumentDescriptor = .{
-        .arg = "pos",
-        .help = "",
-        .default = "Hello",
-    };
-    try testArgumentInfoParsing(
-        d4,
-        .{
-            .desc = d4,
-            .name = "pos",
-            .info = .{ .positional = .{} },
-        },
-    );
+    const d4: ArgumentDescriptor = .{ .arg = "pos", .help = "", .default = "Hello" };
+    try testArgumentInfoParsing(d4, .{
+        .desc = d4,
+        .name = "pos",
+        .info = .{ .positional = .{} },
+    });
 
-    const d5: ArgumentDescriptor = .{
-        .arg = "pos...",
-        .help = "",
-    };
-    try testArgumentInfoParsing(
-        d5,
-        .{
-            .desc = d5,
-            .name = "pos",
-            .info = .{ .positional = .{ .variadic = true } },
-        },
-    );
+    const d5: ArgumentDescriptor = .{ .arg = "pos...", .help = "" };
+    try testArgumentInfoParsing(d5, .{
+        .desc = d5,
+        .name = "pos",
+        .info = .{ .positional = .{ .variadic = true } },
+    });
 }
 
 fn ArgumentsFromDescriptors(comptime args: []const ArgumentDescriptor) []const Argument {
@@ -323,42 +292,137 @@ fn ArgumentsFromDescriptors(comptime args: []const ArgumentDescriptor) []const A
     return arguments;
 }
 
-const ParseError = error{ DuplicateArgument, InvalidArgument };
+const ParseError = error{
+    DuplicateArgument,
+    InvalidArgument,
+    ExpectedPositional,
+};
 
-pub fn ArgParser(comptime arguments: []const Argument) type {
-    const ParsedT = ParsedType(arguments);
+pub fn ArgParser(comptime A: anytype) type {
+    const mode: enum { commands, arguments } = switch (@typeInfo(@TypeOf(A))) {
+        .pointer => if (std.meta.Child(@TypeOf(A)) == Argument)
+            .arguments
+        else
+            @compileError(std.fmt.comptimePrint(
+                "Child of array must be Arguments (given '{any}')",
+                .{std.meta.Child(A)},
+            )),
+        .type => if (@typeInfo(A) == .@"union")
+            .commands
+        else
+            @compileError(std.fmt.comptimePrint(
+                "Must be union type (given '{any}')",
+                .{A},
+            )),
+        else => @compileError(std.fmt.comptimePrint(
+            "Invalid argument type to ArgParse: '{any}'",
+            .{A},
+        )),
+    };
 
-    comptime var init_parsed: ParsedT = undefined;
-    inline for (@typeInfo(ParsedT).@"struct".fields) |field| {
-        if (field.default_value) |ptr| {
-            const default_value = @as(*align(1) const field.type, @ptrCast(ptr)).*;
-            @field(init_parsed, field.name) = default_value;
-        }
-    }
+    const Mask = std.bit_set.StaticBitSet(switch (mode) {
+        .commands => 0,
+        .arguments => A.len,
+    });
 
-    const Mask = std.bit_set.StaticBitSet(arguments.len);
+    const SubParser = switch (mode) {
+        .arguments => void,
+        .commands => ?A,
+    };
+    const sub_parser_init: SubParser = switch (mode) {
+        .arguments => {},
+        .commands => null,
+    };
 
     return struct {
         const Self = @This();
 
-        const Status = struct {
-            err: ?anyerror = null,
-            arg: cli.Arg = null,
+        pub const Parsed = b: switch (mode) {
+            .arguments => break :b ParsedType(A),
+            .commands => {
+                var union_fields: []const std.builtin.Type.UnionField = &.{};
+                for (@typeInfo(A).@"union".fields) |field| {
+                    union_fields = union_fields ++ .{std.builtin.Type.UnionField{
+                        .name = field.name,
+                        .type = field.type.Parsed,
+                        .alignment = @alignOf(field.type.Parsed),
+                    }};
+                }
+
+                break :b @Type(
+                    .{ .@"union" = .{
+                        .layout = .auto,
+                        .tag_type = @typeInfo(A).@"union".tag_type,
+                        .fields = union_fields,
+                        .decls = &.{},
+                    } },
+                );
+            },
         };
 
-        pub const Parsed = ParsedT;
+        pub const ParseOptions = struct {
+            forgiving: bool = false,
+        };
 
         allocator: ?std.mem.Allocator = null,
-        itt: *cli.ArgumentIterator,
         mask: Mask = Mask.initEmpty(),
-        _parsed: Parsed = init_parsed,
+        _sub_parser: SubParser = sub_parser_init,
+        _parsed: Parsed = switch (mode) {
+            .arguments => initWithDefaults(Parsed),
+            .commands => undefined,
+        },
+        itt: *cli.ArgumentIterator,
+        opts: ParseOptions,
 
-        pub fn init(itt: *cli.ArgumentIterator) Self {
-            return .{ .itt = itt };
+        pub fn init(itt: *cli.ArgumentIterator, opts: ParseOptions) Self {
+            return .{ .itt = itt, .opts = opts };
         }
 
-        fn parseArg(self: *Self, arg: cli.Arg) !void {
-            inline for (arguments, 0..) |a, i| {
+        fn commandsParseArg(self: *Self, arg: cli.Arg) !void {
+            comptime {
+                if (mode != .commands) @compileError("Must be in .commands mode");
+            }
+
+            if (self._sub_parser) |*sub_parser| {
+                inline for (@typeInfo(A).@"union".fields) |field| {
+                    if (std.mem.eql(
+                        u8,
+                        field.name,
+                        @tagName(std.meta.activeTag(sub_parser.*)),
+                    )) {
+                        const p = &@field(sub_parser, field.name);
+                        try p.parseArg(arg);
+                        @field(self._parsed, field.name) = p._parsed;
+                    }
+                }
+            } else {
+                if (arg.flag) return ParseError.ExpectedPositional;
+                inline for (@typeInfo(A).@"union".fields) |field| {
+                    if (std.mem.eql(u8, field.name, arg.string)) {
+                        self._parsed = @unionInit(
+                            Parsed,
+                            field.name,
+                            initWithDefaults(field.type.Parsed),
+                        );
+                        const sub_parser_instance = @field(field.type, "init")(
+                            self.itt,
+                            self.opts,
+                        );
+                        self._sub_parser = @unionInit(
+                            A,
+                            field.name,
+                            sub_parser_instance,
+                        );
+                    }
+                }
+            }
+        }
+
+        fn argumentsParseArg(self: *Self, arg: cli.Arg) !void {
+            comptime {
+                if (mode != .arguments) @compileError("Must be in .arguments mode");
+            }
+            inline for (A, 0..) |a, i| {
                 if (a.matches(arg)) {
                     switch (a.info) {
                         .flag => |f| {
@@ -367,7 +431,10 @@ pub fn ArgParser(comptime arguments: []const Argument) type {
 
                             if (f.accepts_value) {
                                 const value = try self.itt.getValue();
-                                @field(self._parsed, a.name) = try parseStringAs(a.InnerType(), value);
+                                @field(self._parsed, a.name) = try parseStringAs(
+                                    a.InnerType(),
+                                    value,
+                                );
                             } else {
                                 @field(self._parsed, a.name) = true;
                             }
@@ -377,7 +444,10 @@ pub fn ArgParser(comptime arguments: []const Argument) type {
                         },
                         .positional => {
                             if (!self.mask.isSet(i)) {
-                                @field(self._parsed, a.name) = try parseStringAs(a.InnerType(), arg.string);
+                                @field(self._parsed, a.name) = try parseStringAs(
+                                    a.InnerType(),
+                                    arg.string,
+                                );
                                 self.mask.set(i);
                                 return;
                             }
@@ -388,16 +458,59 @@ pub fn ArgParser(comptime arguments: []const Argument) type {
             return ParseError.InvalidArgument;
         }
 
-        pub fn parseAll(self: *Self) !Parsed {
+        fn parseArg(self: *Self, arg: cli.Arg) !void {
+            return switch (mode) {
+                .arguments => self.argumentsParseArg(arg),
+                .commands => self.commandsParseArg(arg),
+            };
+        }
+
+        pub fn ParseCallbacks(comptime T: type) type {
+            return struct {
+                unhandled_arg: *const fn (ctx: T, parser: *Self, arg: cli.Arg) anyerror!void,
+            };
+        }
+
+        pub fn parseAllCtx(
+            self: *Self,
+            ctx: anytype,
+            callbacks: ParseCallbacks(@TypeOf(ctx)),
+        ) !Parsed {
             while (try self.itt.next()) |arg| {
                 self.parseArg(arg) catch |err| {
-                    std.debug.print("Arg Failed: {any}: {s}", .{ arg, arg.string });
-                    return err;
+                    switch (err) {
+                        ParseError.InvalidArgument => try callbacks.unhandled_arg(ctx, self, arg),
+                        else => if (!self.opts.forgiving) return err,
+                    }
                 };
             }
             return self._parsed;
         }
+
+        pub fn parseAll(self: *Self) !Parsed {
+            const Ctx = struct {
+                fn unhandled_arg(_: @This(), _: *Self, _: cli.Arg) anyerror!void {
+                    return ParseError.InvalidArgument;
+                }
+            };
+
+            return try self.parseAllCtx(Ctx{}, .{ .unhandled_arg = Ctx.unhandled_arg });
+        }
     };
+}
+
+fn initWithDefaults(comptime T: type) T {
+    var init_parsed: T = undefined;
+    inline for (@typeInfo(T).@"struct".fields) |field| {
+        if (field.default_value) |ptr| {
+            const default_value = @as(
+                *align(1) const field.type,
+                @ptrCast(ptr),
+            ).*;
+            @field(init_parsed, field.name) = default_value;
+        }
+    }
+    return init_parsed;
 }
 
 pub fn ParsedType(comptime arguments: []const Argument) type {
@@ -421,6 +534,12 @@ pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
     return ArgParser(arguments);
 }
 
+pub fn Commands(comptime U: type) type {
+    if (@typeInfo(U) != .@"union")
+        @compileError("Commands must be given a union type");
+    return ArgParser(U);
+}
+
 fn testParseArgs(comptime Parser: type, comptime string: []const u8) !Parser.Parsed {
     const arg_strings = try utils.fromString(
         std.testing.allocator,
@@ -429,7 +548,7 @@ fn testParseArgs(comptime Parser: type, comptime string: []const u8) !Parser.Par
     defer std.testing.allocator.free(arg_strings);
     var argitt = cli.ArgumentIterator.init(arg_strings);
 
-    var parser = Parser.init(&argitt);
+    var parser = Parser.init(&argitt, .{ .forgiving = true });
     return try parser.parseAll();
 }
 
@@ -469,5 +588,55 @@ test "test-parse-1" {
         try std.testing.expectEqualStrings(parsed.item, "hello");
         try std.testing.expectEqualStrings(parsed.other.?, "goodbye");
         try std.testing.expectEqual(true, parsed.flag);
+    }
+
+    {
+        const parsed = try testParseArgs(Parser, "hello --limit 12 --flag");
+        try std.testing.expectEqual(parsed.limit, 12);
+        try std.testing.expectEqualStrings(parsed.item, "hello");
+        try std.testing.expectEqual(parsed.other, null);
+        try std.testing.expectEqual(true, parsed.flag);
+    }
+
+    {
+        const parsed = try testParseArgs(Parser, "hello --flag --limit");
+        try std.testing.expectEqual(parsed.limit, null);
+        try std.testing.expectEqualStrings(parsed.item, "hello");
+        try std.testing.expectEqual(parsed.other, null);
+        try std.testing.expectEqual(true, parsed.flag);
+    }
+}
+
+const MoreTestArguments = [_]ArgumentDescriptor{
+    .{
+        .arg = "item",
+        .help = "Positional argument.",
+        .required = true,
+    },
+    .{
+        .arg = "-c/--control",
+        .help = "Toggleable",
+    },
+};
+
+const MutualTestArguments = [_]ArgumentDescriptor{
+    .{
+        .arg = "--interactive",
+        .help = "Toggleable",
+    },
+};
+
+const TestCommands = union(enum) {
+    hello: Arguments(&TestArguments),
+    world: Arguments(&MutualTestArguments),
+};
+
+test "commands-1" {
+    const Parser = Commands(TestCommands);
+    {
+        const parsed = try testParseArgs(Parser, "hello abc --flag");
+        const c = parsed.hello;
+        try std.testing.expectEqualStrings("abc", c.item);
+        try std.testing.expectEqual(true, c.flag);
     }
 }
