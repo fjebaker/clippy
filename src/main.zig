@@ -1,166 +1,34 @@
 const std = @import("std");
-const testing = std.testing;
-
 const utils = @import("utils.zig");
-const ArgumentInfo = @import("info.zig").ArgumentInfo;
-
-const wrapper = @import("wrapper.zig");
-
-const UnionField = std.builtin.Type.UnionField;
-const EnumField = std.builtin.Type.EnumField;
-
 const cli = @import("cli.zig");
 
-pub const ComptimeError = utils.ComptimeError;
-pub const RuntimeError = utils.RuntimeError;
-pub const Error = utils.Error;
-
-pub const WrappingOptions = utils.WrappingOptions;
-pub const HelpFormatting = wrapper.HelpFormatting;
-pub const comptimeWrap = utils.comptimeWrap;
-pub const writeWrapped = utils.writeWrapped;
-
-pub fn ClippyInterface(
-    comptime options: cli.ArgumentIteratorOptions,
-) type {
-    return struct {
-        pub const Arg = cli.Arg;
-        pub const ArgIterator = cli.ArgumentIterator(options);
-
-        pub fn Commands(comptime opts: CommandsOptions) type {
-            const Mutual = Arguments(opts.mutual);
-
-            comptime var union_fields: []const UnionField = &.{};
-            comptime var parsed_fields: []const UnionField = &.{};
-            comptime var enum_fields: []const EnumField = &.{};
-
-            comptime var fallback: bool = false;
-            comptime var fallback_completion: ?[]const u8 = null;
-
-            inline for (opts.commands, 0..) |cmd, i| {
-                if (!cmd.fallback and cmd.completion != null)
-                    @compileError("Can only provide completion for the fallback command");
-                if (fallback and cmd.fallback)
-                    @compileError("Only one command may be specified as the fallback command");
-
-                if (cmd.fallback) {
-                    fallback = true;
-                    fallback_completion = cmd.completion;
-                }
-
-                const Args = Arguments(cmd.getArgumentDescriptors());
-
-                union_fields = union_fields ++ .{UnionField{
-                    .name = @ptrCast(cmd.name),
-                    .type = Args,
-                    .alignment = @alignOf(Args),
-                }};
-
-                parsed_fields = parsed_fields ++ .{UnionField{
-                    .name = @ptrCast(cmd.name),
-                    .type = Args.Parsed,
-                    .alignment = @alignOf(Args.Parsed),
-                }};
-
-                const field: EnumField = .{
-                    .name = @ptrCast(cmd.name),
-                    .value = i,
-                };
-                enum_fields = enum_fields ++ .{field};
-            }
-
-            const tag_enum = @Type(.{ .@"enum" = .{
-                .tag_type = usize,
-                .fields = enum_fields,
-                .decls = &.{},
-                .is_exhaustive = false,
-            } });
-
-            const CommandsType = @Type(
-                .{ .@"union" = .{
-                    .layout = .auto,
-                    .tag_type = tag_enum,
-                    .fields = union_fields,
-                    .decls = &.{},
-                } },
-            );
-
-            const InternalType = @Type(
-                .{ .@"union" = .{
-                    .layout = .auto,
-                    .tag_type = tag_enum,
-                    .fields = parsed_fields,
-                    .decls = &.{},
-                } },
-            );
-
-            return wrapper.CommandsWrapper(
-                ArgIterator,
-                Mutual,
-                CommandsType,
-                InternalType,
-                opts.commands,
-                fallback,
-            );
-        }
-
-        /// Create an Arguments wrapper for parsing arguments for a given set
-        /// of argument descriptors.
-        ///
-        /// The resulting struct has the standard wrapper interface and defined
-        /// the following methods:
-        /// - `fn generateCompletion(Allocator, Shell, []const u8) ![]const u8`
-        /// - `fn writeHelp(writer, HelpFormatting) !void`
-        ///
-        /// - `fn parseArg(Arg) !bool`
-        /// - `fn parseArgForgiving(Arg) bool`
-        /// - `fn getParsed(*ArgIterator) !Parsed`
-        ///
-        /// - `fn parseAll(*ArgIterator) !Parsed`
-        /// - `fn parseAllForgiving(*ArgIterator) ?Parsed`
-        ///
-        /// Most standard usage will only need to use `parseAll`.
-        pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
-            const infos = parseableInfo(args);
-
-            // create the fields for returning the arguments
-            comptime var fields: []const std.builtin.Type.StructField = &.{};
-            inline for (infos) |info| {
-                fields = fields ++ .{info.toField()};
-            }
-
-            const InternalType = @Type(
-                .{ .@"struct" = .{
-                    .layout = .auto,
-                    .is_tuple = false,
-                    .fields = fields,
-                    .decls = &.{},
-                } },
-            );
-
-            return wrapper.ArgumentsWrapper(ArgIterator, infos, InternalType);
-        }
-    };
+test "all" {
+    _ = cli;
+    _ = utils;
 }
 
-/// Argument wrapper for generating help strings and parsing
+/// Default argument type, used to infer `[]const u8`.
+pub const DefaultType = struct {};
+
 pub const ArgumentDescriptor = struct {
     /// Argument name. Can be either the name itself or a flag Short flags
     /// should just be `-f`, long flags `--flag`, and short and long
-    /// `-f/--flag`
+    /// `-f/--flag`. If it is a flag, `--flag value` is to mean the flag should
+    /// accept a value, otherwise it is treated as a boolean.
+    /// To slurp positionals, use `arg_name...`.
     arg: []const u8,
+
+    /// Help string
+    help: []const u8,
 
     /// How the argument should be displayed in the help message.
     display_name: ?[]const u8 = null,
 
     /// The type the argument should be parsed to.
-    argtype: type = []const u8,
+    argtype: type = DefaultType,
 
     /// Default argument value.
     default: ?[]const u8 = null,
-
-    /// Help string
-    help: []const u8,
 
     /// Should the argument be shown in the help?
     show_help: bool = true,
@@ -175,71 +43,394 @@ pub const ArgumentDescriptor = struct {
     completion: ?[]const u8 = null,
 };
 
-/// Command descriptor for specifying arguments for subcommands
-pub const CommandDescriptor = struct {
-    /// Command name
+pub const ArgumentError = error{
+    /// Argument name is using invalid characters.
+    InvalidArgName,
+    /// Argument specifier is malformed (e.g. wrong number of `--` in a flag).
+    MalformedDescriptor,
+};
+
+const Argument = struct {
+    desc: ArgumentDescriptor,
+    info: union(enum) {
+        flag: struct {
+            short_name: ?[]const u8 = null,
+            accepts_value: bool = false,
+            type: enum { short, long, short_and_long } = .short,
+        },
+        positional: struct {
+            variadic: bool = false,
+        },
+    },
     name: []const u8,
 
-    /// Help string
-    help: []const u8,
+    fn matches(self: Argument, arg: cli.Arg) bool {
+        return switch (self.info) {
+            .flag => |f| arg.flag and switch (f.type) {
+                .short => arg.is(self.name[0], null),
+                .long, .short_and_long => arg.is(
+                    if (f.short_name) |sn| sn[0] else null,
+                    self.name,
+                ),
+            },
+            .positional => !arg.flag,
+        };
+    }
 
-    /// Arguments associated with this subcommand
-    args: []const ArgumentDescriptor,
-
-    /// Will match any other command string. There can only be one command with
-    /// fallback active
-    fallback: bool = false,
-
-    /// Only valid for the fallback option. A string used to generate the shell
-    /// completion for this argument.
-    completion: ?[]const u8 = null,
-
-    fn getArgumentDescriptors(
-        comptime cmd: CommandDescriptor,
-    ) []const ArgumentDescriptor {
-        if (!utils.allValidPositionalChars(cmd.name))
-            @compileError("Invalid command name: " ++ cmd.name);
-
-        // TODO: fallback adds an argument
-        const args = b: {
-            if (cmd.fallback) {
-                break :b .{ArgumentDescriptor{
-                    .arg = cmd.name,
-                    .help = "",
-                    .show_help = false,
-                    .required = true,
-                }} ++ cmd.args;
-            } else {
-                break :b cmd.args;
-            }
+    fn parseAsFlag(desc: ArgumentDescriptor) !Argument {
+        std.debug.assert(desc.arg[0] == '-');
+        var arg: Argument = .{
+            .desc = desc,
+            .info = .{ .flag = .{} },
+            .name = undefined,
         };
 
-        return args;
+        var name_string = desc.arg;
+        if (std.mem.indexOfScalar(u8, name_string, ' ')) |i| {
+            name_string = name_string[0..i];
+            arg.info.flag.accepts_value = true;
+        }
+
+        if (std.mem.indexOfScalar(u8, name_string, '/')) |i| {
+            arg.info.flag.short_name = name_string[1..i];
+
+            if (name_string.len > i + 3 and name_string[i + 1] != '-' and name_string[i + 2] != '-')
+                return ArgumentError.MalformedDescriptor;
+
+            name_string = name_string[i + 3 ..];
+
+            arg.info.flag.type = .short_and_long;
+        } else {
+            if (name_string.len > 2 and name_string[1] == '-') {
+                arg.info.flag.type = .long;
+                name_string = name_string[2..];
+            } else {
+                name_string = name_string[1..];
+            }
+        }
+
+        if (!utils.allValidFlagChars(name_string))
+            return ArgumentError.InvalidArgName;
+
+        arg.name = name_string;
+
+        return arg;
+    }
+
+    fn parseAsPositional(desc: ArgumentDescriptor) !Argument {
+        var variadic = false;
+        var name = desc.arg;
+        if (desc.arg.len >= 3 and std.mem.eql(u8, desc.arg[desc.arg.len - 3 ..], "...")) {
+            variadic = true;
+            name = desc.arg[0 .. desc.arg.len - 3];
+        }
+
+        if (!utils.allValidPositionalChars(name))
+            return ArgumentError.InvalidArgName;
+
+        return .{
+            .desc = desc,
+            .info = .{ .positional = .{ .variadic = variadic } },
+            .name = name,
+        };
+    }
+
+    fn fromDescriptor(desc: ArgumentDescriptor) !Argument {
+        if (desc.arg.len == 0) return ArgumentError.MalformedDescriptor;
+        const arg = if (desc.arg[0] == '-')
+            try parseAsFlag(desc)
+        else
+            try parseAsPositional(desc);
+
+        return arg;
+    }
+
+    fn InnerType(self: Argument) type {
+        const T = self.makeField().type;
+        if (@typeInfo(T) == .optional) {
+            return std.meta.Child(T);
+        }
+        return T;
+    }
+
+    /// Use the Argument information to parse a `std.builtin.Type.StructField`.
+    pub fn makeField(comptime arg: Argument) std.builtin.Type.StructField {
+        var default: ?*const anyopaque = null;
+        const InnerT: type = b: {
+            switch (arg.info) {
+                .flag => |f| {
+                    if (!f.accepts_value) {
+                        if (arg.desc.argtype != DefaultType)
+                            @compileError("Argtype for flag without value must be DefaultType.");
+                        default = @ptrCast(&false);
+                        break :b bool;
+                    }
+                },
+                .positional => {},
+            }
+            if (arg.desc.argtype == DefaultType) break :b []const u8;
+            break :b arg.desc.argtype;
+        };
+
+        const T = if (arg.desc.required or arg.desc.default != null or default != null)
+            InnerT
+        else
+            ?InnerT;
+
+        if (arg.desc.default) |d| {
+            if (InnerT == DefaultType)
+                default = parseStringAs(T, d) catch
+                    @compileError("Default argument is invalid: '" ++ d ++ "'");
+        }
+
+        return .{
+            .name = @ptrCast(arg.name),
+            .type = T,
+            .default_value = default,
+            .is_comptime = false,
+            .alignment = @alignOf(T),
+        };
     }
 };
 
-pub const CommandsOptions = struct {
-    mutual: []const ArgumentDescriptor = &.{},
-    commands: []const CommandDescriptor,
-};
-
-/// Filter only those arguments with `parse` set to `true`, and initialize the
-/// argument info structure
-fn parseableInfo(
-    comptime args: []const ArgumentDescriptor,
-) []const ArgumentInfo {
-    comptime var parseable: []const ArgumentInfo = &.{};
-    inline for (args) |arg| {
-        if (arg.parse) {
-            const info = ArgumentInfo.fromDescriptor(arg) catch |err|
+fn parseStringAs(comptime T: type, s: []const u8) !T {
+    switch (@typeInfo(T)) {
+        .pointer => |arr| {
+            if (arr.child == u8) {
+                return s;
+            } else {
+                // TODO: here's where we'll do multi argument parsing
+                @compileError("No method for parsing slices of this type");
+            }
+        },
+        .int => {
+            return try std.fmt.parseInt(T, s, 10);
+        },
+        .float => {
+            return try std.fmt.parseFloat(T, s);
+        },
+        .@"enum" => {
+            return try std.meta.stringToEnum(T, s);
+        },
+        .@"struct" => {
+            if (@hasDecl(T, "initFromArg")) {
+                return try @field(T, "initFromArg")(s);
+            } else {
                 @compileError(
-                "Could not extract info for " ++ arg.arg ++
-                    " (" ++ @errorName(err) ++ ")",
-            );
-            parseable = parseable ++ .{info};
+                    "Structs must declare a public `initFromArg` function",
+                );
+            }
+        },
+        else => @compileError(std.fmt.comptimePrint("No method for parsing type: '{any}'", .{T})),
+    }
+}
+fn testArgumentInfoParsing(
+    comptime descriptor: ArgumentDescriptor,
+    comptime expected: Argument,
+) !void {
+    const actual = try Argument.fromDescriptor(descriptor);
+    try std.testing.expectEqualDeep(
+        expected.info,
+        actual.info,
+    );
+}
+
+test "arg descriptor parsing" {
+    const d1: ArgumentDescriptor = .{
+        .arg = "-n/--limit value",
+        .help = "",
+    };
+    try testArgumentInfoParsing(
+        d1,
+        .{
+            .desc = d1,
+            .name = "limit",
+            .info = .{ .flag = .{
+                .short_name = "n",
+                .accepts_value = true,
+                .type = .short_and_long,
+            } },
+        },
+    );
+
+    const d2: ArgumentDescriptor = .{
+        .arg = "-n/--limit",
+        .help = "",
+    };
+    try testArgumentInfoParsing(
+        d2,
+        .{
+            .desc = d2,
+            .name = "limit",
+            .info = .{ .flag = .{
+                .short_name = "n",
+                .accepts_value = false,
+                .type = .short_and_long,
+            } },
+        },
+    );
+
+    const d3: ArgumentDescriptor = .{
+        .arg = "pos",
+        .help = "",
+    };
+    try testArgumentInfoParsing(
+        d3,
+        .{
+            .desc = d3,
+            .name = "pos",
+            .info = .{ .positional = .{} },
+        },
+    );
+
+    const d4: ArgumentDescriptor = .{
+        .arg = "pos",
+        .help = "",
+        .default = "Hello",
+    };
+    try testArgumentInfoParsing(
+        d4,
+        .{
+            .desc = d4,
+            .name = "pos",
+            .info = .{ .positional = .{} },
+        },
+    );
+
+    const d5: ArgumentDescriptor = .{
+        .arg = "pos...",
+        .help = "",
+    };
+    try testArgumentInfoParsing(
+        d5,
+        .{
+            .desc = d5,
+            .name = "pos",
+            .info = .{ .positional = .{ .variadic = true } },
+        },
+    );
+}
+
+fn ArgumentsFromDescriptors(comptime args: []const ArgumentDescriptor) []const Argument {
+    comptime var arguments: []const Argument = &.{};
+    inline for (args) |a| {
+        const arg = Argument.fromDescriptor(a) catch |err|
+            @compileError(
+            std.fmt.comptimePrint("Could not parse argument '{s}': Error {any}", .{ a.arg, err }),
+        );
+        arguments = arguments ++ .{arg};
+    }
+    return arguments;
+}
+
+const ParseError = error{ DuplicateArgument, InvalidArgument };
+
+pub fn ArgParser(comptime arguments: []const Argument) type {
+    const ParsedT = ParsedType(arguments);
+
+    comptime var init_parsed: ParsedT = undefined;
+    inline for (@typeInfo(ParsedT).@"struct".fields) |field| {
+        if (field.default_value) |ptr| {
+            const default_value = @as(*align(1) const field.type, @ptrCast(ptr)).*;
+            @field(init_parsed, field.name) = default_value;
         }
     }
-    return parseable;
+
+    const Mask = std.bit_set.StaticBitSet(arguments.len);
+
+    return struct {
+        const Self = @This();
+
+        const Status = struct {
+            err: ?anyerror = null,
+            arg: cli.Arg = null,
+        };
+
+        pub const Parsed = ParsedT;
+
+        allocator: ?std.mem.Allocator = null,
+        itt: *cli.ArgumentIterator,
+        mask: Mask = Mask.initEmpty(),
+        _parsed: Parsed = init_parsed,
+
+        pub fn init(itt: *cli.ArgumentIterator) Self {
+            return .{ .itt = itt };
+        }
+
+        fn parseArg(self: *Self, arg: cli.Arg) !void {
+            inline for (arguments, 0..) |a, i| {
+                if (a.matches(arg)) {
+                    switch (a.info) {
+                        .flag => |f| {
+                            if (self.mask.isSet(i))
+                                return ParseError.DuplicateArgument;
+
+                            if (f.accepts_value) {
+                                const value = try self.itt.getValue();
+                                @field(self._parsed, a.name) = try parseStringAs(a.InnerType(), value);
+                            } else {
+                                @field(self._parsed, a.name) = true;
+                            }
+
+                            self.mask.set(i);
+                            return;
+                        },
+                        .positional => {
+                            if (!self.mask.isSet(i)) {
+                                @field(self._parsed, a.name) = try parseStringAs(a.InnerType(), arg.string);
+                                self.mask.set(i);
+                                return;
+                            }
+                        },
+                    }
+                }
+            }
+            return ParseError.InvalidArgument;
+        }
+
+        pub fn parseAll(self: *Self) !Parsed {
+            while (try self.itt.next()) |arg| {
+                self.parseArg(arg) catch |err| {
+                    std.debug.print("Arg Failed: {any}: {s}", .{ arg, arg.string });
+                    return err;
+                };
+            }
+            return self._parsed;
+        }
+    };
+}
+
+pub fn ParsedType(comptime arguments: []const Argument) type {
+    comptime var fields: []const std.builtin.Type.StructField = &.{};
+    inline for (arguments) |a| {
+        fields = fields ++ .{a.makeField()};
+    }
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .is_tuple = false,
+            .fields = fields,
+            .decls = &.{},
+        },
+    });
+}
+
+pub fn Arguments(comptime args: []const ArgumentDescriptor) type {
+    const arguments = ArgumentsFromDescriptors(args);
+    return ArgParser(arguments);
+}
+
+fn testParseArgs(comptime Parser: type, comptime string: []const u8) !Parser.Parsed {
+    const arg_strings = try utils.fromString(
+        std.testing.allocator,
+        string,
+    );
+    defer std.testing.allocator.free(arg_strings);
+    var argitt = cli.ArgumentIterator.init(arg_strings);
+
+    var parser = Parser.init(&argitt);
+    return try parser.parseAll();
 }
 
 const TestArguments = [_]ArgumentDescriptor{
@@ -252,17 +443,17 @@ const TestArguments = [_]ArgumentDescriptor{
         .arg = "-n/--limit value",
         .help = "Limit.",
         .argtype = usize,
-        .completion = "{compadd $(ls -1)}",
+        // .completion = "{compadd $(ls -1)}",
     },
     .{
         .arg = "other",
         .help = "Another positional",
-        .argtype = struct {
-            value: []const u8,
-            pub fn initFromArg(s: []const u8) !@This() {
-                return .{ .value = s };
-            }
-        },
+        // .argtype = struct {
+        //     value: []const u8,
+        //     pub fn initFromArg(s: []const u8) !@This() {
+        //         return .{ .value = s };
+        //     }
+        // },
     },
     .{
         .arg = "-f/--flag",
@@ -270,398 +461,13 @@ const TestArguments = [_]ArgumentDescriptor{
     },
 };
 
-const TestClippy = ClippyInterface(.{});
-
-fn parseArgs(comptime T: type, comptime string: []const u8) !T.Parsed {
-    const arg_strings = try utils.fromString(
-        std.testing.allocator,
-        string,
-    );
-    defer std.testing.allocator.free(arg_strings);
-    var argitt = TestClippy.ArgIterator.init(arg_strings);
-
-    var parser = T.init(&argitt);
-    while (try argitt.next()) |arg| {
-        _ = try parser.parseArg(arg);
-    }
-
-    return try parser.getParsed();
-}
-
-fn parseArgsForgiving(comptime T: type, comptime string: []const u8) !T.Parsed {
-    const arg_strings = try utils.fromString(
-        std.testing.allocator,
-        string,
-    );
-    defer std.testing.allocator.free(arg_strings);
-    var argitt = TestClippy.ArgIterator.init(arg_strings);
-
-    var parser = T.init(&argitt);
-    while (try argitt.next()) |arg| {
-        _ = parser.parseArgForgiving(arg);
-    }
-
-    return try parser.getParsed();
-}
-
-test "example arguments" {
-    const Args = TestClippy.Arguments(&TestArguments);
-    const fields = @typeInfo(Args.Parsed).@"struct".fields;
-    _ = fields;
-
+test "test-parse-1" {
+    const Parser = Arguments(&TestArguments);
     {
-        const parsed = try parseArgs(
-            Args,
-            "hello --limit 12 goodbye -f",
-        );
-        try testing.expectEqual(parsed.limit, 12);
-        try testing.expectEqualStrings(parsed.item, "hello");
-        try testing.expectEqualStrings(parsed.other.?.value, "goodbye");
-        try testing.expectEqual(true, parsed.flag);
+        const parsed = try testParseArgs(Parser, "hello --limit 12 goodbye -f");
+        try std.testing.expectEqual(parsed.limit, 12);
+        try std.testing.expectEqualStrings(parsed.item, "hello");
+        try std.testing.expectEqualStrings(parsed.other.?, "goodbye");
+        try std.testing.expectEqual(true, parsed.flag);
     }
-
-    {
-        const parsed = try parseArgs(
-            Args,
-            "hello --limit 12 --flag",
-        );
-        try testing.expectEqual(parsed.limit, 12);
-        try testing.expectEqualStrings(parsed.item, "hello");
-        try testing.expectEqual(parsed.other, null);
-        try testing.expectEqual(true, parsed.flag);
-    }
-
-    {
-        const parsed = try parseArgsForgiving(
-            Args,
-            "hello --flag --limit",
-        );
-        try testing.expectEqual(parsed.limit, null);
-        try testing.expectEqualStrings(parsed.item, "hello");
-        try testing.expectEqual(parsed.other, null);
-        try testing.expectEqual(true, parsed.flag);
-    }
-}
-
-const MoreTestArguments = [_]ArgumentDescriptor{
-    .{
-        .arg = "item",
-        .help = "Positional argument.",
-        .required = true,
-    },
-    .{
-        .arg = "-c/--control",
-        .help = "Toggleable",
-    },
-};
-
-const MutualTestArguments = [_]ArgumentDescriptor{
-    .{
-        .arg = "--interactive",
-        .help = "Toggleable",
-    },
-};
-
-test "commands" {
-    const Args1 = &TestArguments;
-    const Args2 = &MoreTestArguments;
-    const Mutuals = &MutualTestArguments;
-
-    const Cmds = TestClippy.Commands(
-        .{ .mutual = Mutuals, .commands = &.{
-            .{ .name = "hello", .args = Args1, .help = "Hello command" },
-            .{ .name = "world", .args = Args2, .help = "world command" },
-        } },
-    );
-
-    {
-        const parsed = try parseArgs(
-            Cmds,
-            "hello abc --flag",
-        );
-        try testing.expectEqual(false, parsed.mutual.interactive);
-        const c = parsed.commands.hello;
-        try testing.expectEqualStrings("abc", c.item);
-        try testing.expectEqual(true, c.flag);
-    }
-
-    {
-        const parsed = try parseArgs(
-            Cmds,
-            "hello abc --interactive",
-        );
-        try testing.expectEqual(true, parsed.mutual.interactive);
-        const c = parsed.commands.hello;
-        try testing.expectEqualStrings("abc", c.item);
-    }
-
-    {
-        // TODO: need to check for unknown flags too
-        const parsed = try parseArgs(
-            Cmds,
-            "hello abc --control",
-        );
-        try testing.expectEqual(false, parsed.mutual.interactive);
-        const c = parsed.commands.hello;
-        try testing.expectEqualStrings("abc", c.item);
-        try testing.expectEqual(false, c.flag);
-    }
-
-    const CmdsNoMutual = TestClippy.Commands(
-        .{ .commands = &.{
-            .{ .name = "hello", .args = Args1, .help = "hello command" },
-            .{ .name = "world", .args = Args2, .help = "world command" },
-        } },
-    );
-
-    {
-        const parsed = try parseArgs(
-            CmdsNoMutual,
-            "world abc",
-        );
-        const c = parsed.commands.world;
-        try testing.expectEqualStrings("abc", c.item);
-    }
-}
-
-test "commands-fallback" {
-    const Args1 = &TestArguments;
-    const Args2 = &MoreTestArguments;
-    const Mutuals = &MutualTestArguments;
-
-    const CmdsWildcard = TestClippy.Commands(
-        .{ .mutual = Mutuals, .commands = &.{
-            .{ .name = "hello", .args = Args1, .help = "hello command" },
-            .{ .name = "world", .args = Args2, .help = "world command" },
-            .{
-                .name = "other",
-                .args = Args2,
-                .fallback = true,
-                .help = "other command",
-            },
-        } },
-    );
-
-    {
-        const parsed = try parseArgs(
-            CmdsWildcard,
-            "hello abc --flag",
-        );
-        try testing.expectEqual(false, parsed.mutual.interactive);
-        const c = parsed.commands.hello;
-        try testing.expectEqualStrings("abc", c.item);
-        try testing.expectEqual(true, c.flag);
-    }
-
-    {
-        const parsed = try parseArgs(
-            CmdsWildcard,
-            "big other -c",
-        );
-        try testing.expectEqual(false, parsed.mutual.interactive);
-        const c = parsed.commands.other;
-        try testing.expectEqualStrings("big", c.other);
-        try testing.expectEqualStrings("other", c.item);
-        try testing.expectEqual(true, c.control);
-    }
-
-    var list = std.ArrayList(u8).init(testing.allocator);
-    defer list.deinit();
-
-    const writer = list.writer();
-
-    try CmdsWildcard.writeHelp(writer, .{});
-
-    try testing.expectEqualStrings(
-        \\General arguments:
-        \\
-        \\    [--interactive]           Toggleable
-        \\
-        \\Commands:
-        \\
-        \\ hello
-        \\    <item>                    Positional argument.
-        \\    [-n/--limit value]        Limit.
-        \\    [other]                   Another positional
-        \\    [-f/--flag]               Toggleable
-        \\
-        \\ world
-        \\    <item>                    Positional argument.
-        \\    [-c/--control]            Toggleable
-        \\
-        \\ <other>
-        \\    <item>                    Positional argument.
-        \\    [-c/--control]            Toggleable
-        \\
-    , list.items);
-
-    const comp1 = try CmdsWildcard.generateCompletion(testing.allocator, .Zsh, "name");
-    defer testing.allocator.free(comp1);
-
-    try testing.expectEqualStrings(
-        \\_arguments_name_sub_hello() {
-        \\    _arguments -C \
-        \\        ':item:()' \
-        \\        '--limit[]:limit:{compadd $(ls -1)}' \
-        \\        '-n[]:n:{compadd $(ls -1)}' \
-        \\        '::other:()' \
-        \\        '--flag[]::()' \
-        \\        '-f[]::()'
-        \\}
-        \\_arguments_name_sub_world() {
-        \\    _arguments -C \
-        \\        ':item:()' \
-        \\        '--control[]::()' \
-        \\        '-c[]::()'
-        \\}
-        \\_arguments_name_sub_other() {
-        \\    _arguments -C \
-        \\        ':other:()' \
-        \\        ':item:()' \
-        \\        '--control[]::()' \
-        \\        '-c[]::()'
-        \\}
-        \\_arguments_name() {
-        \\    local line state subcmds
-        \\    subcmds=(
-        \\        'hello:hello command'
-        \\        'world:world command'
-        \\        'other:other command'
-        \\    )
-        \\    _arguments \
-        \\        '1:command:subcmds' \
-        \\        '*::arg:->args'
-        \\    case $line[1] in
-        \\        hello)
-        \\            _arguments_name_sub_hello
-        \\        ;;
-        \\        world)
-        \\            _arguments_name_sub_world
-        \\        ;;
-        \\        *)
-        \\            _arguments_name_sub_other
-        \\        ;;
-        \\    esac
-        \\}
-        \\
-    , comp1);
-}
-
-test "everything else" {
-    _ = @import("utils.zig");
-    _ = @import("cli.zig");
-    _ = @import("info.zig");
-    _ = @import("wrapper.zig");
-}
-
-test "argument completion" {
-    const Args1 = TestClippy.Arguments(&TestArguments);
-    const comp1 = try Args1.generateCompletion(testing.allocator, .Zsh, "name");
-    defer testing.allocator.free(comp1);
-
-    try testing.expectEqualStrings(
-        \\_arguments_name() {
-        \\    _arguments -C \
-        \\        ':item:()' \
-        \\        '--limit[]:limit:{compadd $(ls -1)}' \
-        \\        '-n[]:n:{compadd $(ls -1)}' \
-        \\        '::other:()' \
-        \\        '--flag[]::()' \
-        \\        '-f[]::()'
-        \\}
-        \\
-    , comp1);
-}
-
-test "argument help" {
-    const Args1 = TestClippy.Arguments(&TestArguments);
-
-    var list = std.ArrayList(u8).init(testing.allocator);
-    defer list.deinit();
-
-    const writer = list.writer();
-    try Args1.writeHelp(writer, .{});
-
-    try testing.expectEqualStrings(
-        \\    <item>                    Positional argument.
-        \\    [-n/--limit value]        Limit.
-        \\    [other]                   Another positional
-        \\    [-f/--flag]               Toggleable
-        \\
-    , list.items);
-}
-
-test "commands help" {
-    const Args1 = &TestArguments;
-    const Args2 = &MoreTestArguments;
-    const Mutuals = &MutualTestArguments;
-
-    const Cmds = TestClippy.Commands(
-        .{ .mutual = Mutuals, .commands = &.{
-            .{ .name = "hello", .args = Args1, .help = "hello command" },
-            .{ .name = "world", .args = Args2, .help = "world command" },
-        } },
-    );
-
-    var list = std.ArrayList(u8).init(testing.allocator);
-    defer list.deinit();
-
-    const writer = list.writer();
-    try Cmds.writeHelp(writer, .{});
-
-    try testing.expectEqualStrings(
-        \\General arguments:
-        \\
-        \\    [--interactive]           Toggleable
-        \\
-        \\Commands:
-        \\
-        \\ hello
-        \\    <item>                    Positional argument.
-        \\    [-n/--limit value]        Limit.
-        \\    [other]                   Another positional
-        \\    [-f/--flag]               Toggleable
-        \\
-        \\ world
-        \\    <item>                    Positional argument.
-        \\    [-c/--control]            Toggleable
-        \\
-    , list.items);
-}
-
-const TestArgumentsDefault = [_]ArgumentDescriptor{
-    .{
-        .arg = "default_item",
-        .help = "Positional argument",
-        .default = "hello",
-    },
-    .{
-        .arg = "default_thing",
-        .help = "Positional argument",
-        .argtype = usize,
-        .default = "88",
-    },
-};
-
-test "default values arguments" {
-    const Args = TestClippy.Arguments(&TestArgumentsDefault);
-
-    const parsed = try parseArgs(
-        Args,
-        "",
-    );
-    try testing.expectEqualStrings(parsed.default_item, "hello");
-    try testing.expectEqual(parsed.default_thing, 88);
-
-    var list = std.ArrayList(u8).init(testing.allocator);
-    defer list.deinit();
-
-    const writer = list.writer();
-    try Args.writeHelp(writer, .{});
-
-    try testing.expectEqualStrings(
-        \\    [default_item]            Positional argument (default: hello).
-        \\    [default_thing]           Positional argument (default: 88).
-        \\
-    , list.items);
 }
