@@ -11,6 +11,10 @@ pub const ArgParser = parser.ArgParser;
 test "all" {
     _ = cli;
     _ = utils;
+    _ = parser;
+    _ = arguments;
+    _ = @import("help.zig");
+    _ = @import("completion.zig");
 }
 
 fn testArgumentInfoParsing(
@@ -62,20 +66,8 @@ test "arg descriptor parsing" {
     });
 }
 
-fn ArgumentsFromDescriptors(comptime arg_descs: []const ArgumentDescriptor) []const arguments.Argument {
-    comptime var args: []const arguments.Argument = &.{};
-    inline for (arg_descs) |a| {
-        const arg = arguments.Argument.fromDescriptor(a) catch |err|
-            @compileError(
-            std.fmt.comptimePrint("Could not parse argument '{s}': Error {any}", .{ a.arg, err }),
-        );
-        args = args ++ .{arg};
-    }
-    return args;
-}
-
 pub fn Arguments(comptime arg_descs: []const ArgumentDescriptor) type {
-    const args = ArgumentsFromDescriptors(arg_descs);
+    const args = arguments.ArgumentsFromDescriptors(arg_descs);
     return ArgParser(args);
 }
 
@@ -106,7 +98,6 @@ const TestArguments = [_]ArgumentDescriptor{
         .arg = "-n/--limit value",
         .help = "Limit.",
         .argtype = usize,
-        // .completion = "{compadd $(ls -1)}",
     },
     .{
         .arg = "other",

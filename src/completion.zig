@@ -1,7 +1,5 @@
 const std = @import("std");
-
-const ArgumentInfo = @import("info.zig").ArgumentInfo;
-const ArgumentDescriptor = @import("main.zig").ArgumentDescriptor;
+const arguments = @import("arguments.zig");
 
 pub const CompletionWriter = struct {
     allocator: std.mem.Allocator,
@@ -59,8 +57,9 @@ pub const Shell = enum {
     Zsh,
 };
 
-pub const Opts = struct {
-    shell: Shell,
+pub const Options = struct {
+    shell: Shell = .Zsh,
+    function_name: []const u8,
 };
 
 pub const CompletionOptions = struct {
@@ -118,3 +117,97 @@ pub const ZshCompletionWriter = struct {
         });
     }
 };
+
+pub fn generateCompletion(
+    allocator: std.mem.Allocator,
+    args: []const arguments.Argument,
+    opts: Options,
+) ![]const u8 {
+    var writer = try CompletionWriter.init(allocator);
+    defer writer.deinit();
+    // TODO: make this dispatch on different shells correctly
+    const Comp = ZshCompletionWriter;
+
+    inline for (args) |arg| {
+        switch (arg.info) {
+            .flag => |f| {
+                switch (f.type) {
+                    .short_and_long => try Comp.writeShortLongFlag(
+                        &writer,
+                        f.short_name.?,
+                        arg.name,
+                        .{
+                            .action = arg.desc.completion,
+                        },
+                    ),
+                    .long => try Comp.writeLongFlag(
+                        &writer,
+                        arg.name,
+                        .{
+                            .action = arg.desc.completion,
+                        },
+                    ),
+                    .short => try Comp.writeShortFlag(
+                        &writer,
+                        arg.name,
+                        .{
+                            .action = arg.desc.completion,
+                        },
+                    ),
+                }
+            },
+            .positional => try Comp.writePositional(
+                &writer,
+                arg.name,
+                .{
+                    .action = arg.desc.completion,
+                    .optional = !arg.desc.required,
+                },
+            ),
+        }
+    }
+
+    return try writer.finalize(opts.function_name);
+}
+
+const TestArguments = [_]arguments.ArgumentDescriptor{
+    .{
+        .arg = "item",
+        .help = "Positional argument.",
+        .required = true,
+    },
+    .{
+        .arg = "-n/--limit value",
+        .help = "Limit.",
+        .argtype = usize,
+        .completion = "{compadd $(ls -1)}",
+    },
+    .{
+        .arg = "other",
+        .help = "Another positional",
+    },
+    .{
+        .arg = "-f/--flag",
+        .help = "Toggleable",
+    },
+};
+
+test "argument completion" {
+    const Args1 = arguments.ArgumentsFromDescriptors(&TestArguments);
+
+    const comp1 = try generateCompletion(std.testing.allocator, Args1, .{ .function_name = "name" });
+    defer std.testing.allocator.free(comp1);
+
+    try std.testing.expectEqualStrings(
+        \\_arguments_name() {
+        \\    _arguments -C \
+        \\        ':item:()' \
+        \\        '--limit[]:limit:{compadd $(ls -1)}' \
+        \\        '-n[]:n:{compadd $(ls -1)}' \
+        \\        '::other:()' \
+        \\        '--flag[]::()' \
+        \\        '-f[]::()'
+        \\}
+        \\
+    , comp1);
+}

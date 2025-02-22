@@ -180,3 +180,16 @@ pub const Argument = struct {
         };
     }
 };
+
+/// Parse a slice of `ArgumentDescriptor` into a slice of `Argument`
+pub fn ArgumentsFromDescriptors(comptime arg_descs: []const ArgumentDescriptor) []const Argument {
+    comptime var args: []const Argument = &.{};
+    inline for (arg_descs) |a| {
+        const arg = Argument.fromDescriptor(a) catch |err|
+            @compileError(
+            std.fmt.comptimePrint("Could not parse argument '{s}': Error {any}", .{ a.arg, err }),
+        );
+        args = args ++ .{arg};
+    }
+    return args;
+}

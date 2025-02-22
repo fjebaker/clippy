@@ -1,8 +1,9 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 const cli = @import("cli.zig");
-
+const help = @import("help.zig");
 const arguments = @import("arguments.zig");
+const completion = @import("completion.zig");
 
 pub const ParseError = error{
     DuplicateArgument,
@@ -174,6 +175,32 @@ pub fn ArgParser(comptime A: anytype) type {
                 .arguments => self.argumentsParseArg(arg),
                 .commands => self.commandsParseArg(arg),
             };
+        }
+
+        /// Generate the shell completion. Caller owns the memory
+        pub fn generateCompletion(allocator: std.mem.Allocator, opts: completion.Options) ![]const u8 {
+            return switch (mode) {
+                .arguments => try completion.generateCompletion(allocator, A, opts),
+                .commands => unreachable,
+            };
+        }
+
+        /// Write the help for this parser into the writer.
+        pub fn writeHelp(writer: anytype, comptime opts: help.HelpOptions) !void {
+            switch (mode) {
+                .arguments => {
+                    inline for (A) |arg| {
+                        if (arg.desc.show_help) {
+                            try help.helpArgument(writer, arg, opts);
+                        }
+                    }
+                },
+                .commands => {
+                    inline for (@typeInfo(A).@"union".decls) |field| {
+                        _ = field;
+                    }
+                },
+            }
         }
 
         /// Callback functions that may be given to the parser with a specific context.
