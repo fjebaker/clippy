@@ -5,15 +5,6 @@ const utils = @import("utils.zig");
 const ListIterator = utils.ListIterator;
 const Error = utils.Error;
 
-/// Report the error to standard error and throw it
-fn throwErrorToStdErr(err: anyerror, comptime fmt: []const u8, args: anytype) anyerror {
-    var writer = std.io.getStdErr().writer();
-    try writer.print("{s}: ", .{@errorName(err)});
-    try writer.print(fmt, args);
-    try writer.writeByte('\n');
-    return err;
-}
-
 /// Argument abstraction
 pub const Arg = struct {
     string: []const u8,
@@ -101,10 +92,6 @@ pub const ArgumentIterator = struct {
         return self.args.data.len;
     }
 
-    pub fn throwError(err: anyerror, comptime fmt: []const u8, args: anytype) anyerror {
-        // TODO: make this overrideable
-        return throwErrorToStdErr(err, fmt, args);
-    }
     /// Create a copy of the argument interator with all state reset.
     pub fn copy(self: *const ArgumentIterator) ArgumentIterator {
         return ArgumentIterator.init(self.args.data);
@@ -212,63 +199,6 @@ pub const ArgumentIterator = struct {
             if (arg.is(short, long)) return true;
         }
         return false;
-    }
-
-    pub fn throwUnknownFlag(self: *const ArgumentIterator) !void {
-        const arg: Arg = self.previous.?;
-        if (arg.isShortFlag()) {
-            return throwError(Error.UnknownFlag, "-{s}", .{arg.string});
-        } else {
-            return throwError(Error.UnknownFlag, "--{s}", .{arg.string});
-        }
-    }
-
-    pub fn throwBadArgument(
-        self: *const ArgumentIterator,
-        comptime msg: []const u8,
-    ) !void {
-        const arg: Arg = self.previous.?;
-        return throwError(Error.BadArgument, msg ++ ": '{s}'", .{arg.string});
-    }
-
-    pub fn throwTooManyArguments(self: *const ArgumentIterator) !void {
-        const arg = self.previous.?;
-        return throwError(
-            Error.TooManyArguments,
-            "argument '{s}' is too much",
-            .{arg.string},
-        );
-    }
-
-    pub fn throwTooFewArguments(
-        _: *const ArgumentIterator,
-        missing_arg_name: []const u8,
-    ) !void {
-        return throwError(
-            Error.TooFewArguments,
-            "missing argument '{s}'",
-            .{missing_arg_name},
-        );
-    }
-
-    /// Throw a general unknown argument error. To be used when it doesn't
-    /// matter what the argument was, it was just unwanted.  Throw `UnknownFlag`
-    /// if the last argument was a flag, else throw a `BadArgument` error.
-    pub fn throwUnknown(self: *const ArgumentIterator) !void {
-        const arg: Arg = self.previous.?;
-        if (arg.flag) {
-            try self.throwUnknownFlag();
-        } else {
-            try self.throwBadArgument("unknown argument");
-        }
-    }
-
-    pub fn assertNoArguments(self: *ArgumentIterator) !void {
-        if (try self.next()) |arg| {
-            if (arg.flag) {
-                return try self.throwUnknownFlag();
-            } else return try self.throwTooManyArguments();
-        }
     }
 };
 

@@ -9,7 +9,23 @@ pub const ParseError = error{
     DuplicateArgument,
     InvalidArgument,
     ExpectedPositional,
+    MissingRequired,
 };
+
+pub fn default_error_fn(err: anyerror, comptime fmt: []const u8, args: anytype) anyerror!void {
+    const writer = std.io.getStdErr().writer();
+    try writer.print("{any}: ", .{err});
+    try writer.print(fmt, args);
+    try writer.writeAll("\n");
+    return err;
+}
+
+pub const Options = struct {
+    errorFn: fn (anyerror, comptime []const u8, anytype) anyerror!void = default_error_fn,
+};
+
+const root = @import("root");
+const config_options: Options = if (@hasDecl(root, "clippy_options")) root.clippy_options else .{};
 
 /// The argument parsing interface.
 pub fn ArgParser(comptime A: anytype) type {
@@ -221,9 +237,36 @@ pub fn ArgParser(comptime A: anytype) type {
                 self.parseArg(arg) catch |err| {
                     switch (err) {
                         ParseError.InvalidArgument => try callbacks.unhandled_arg(ctx, self, arg),
-                        else => if (!self.opts.forgiving) return err,
+                        else => {},
+                    }
+                    if (!self.opts.forgiving) {
+                        switch (err) {
+                            else => return err,
+
+                            error.CouldNotParse,
+                            error.InvalidArgument,
+                            error.DuplicateFlag,
+                            error.FlagAsPositional,
+                            error.InvalidFlag,
+                            error.TooManyArguments,
+                            error.UnknownFlag,
+                            error.IncompatibleTypes,
+                            error.ExpectedPositional,
+                            error.MissingFlagValue,
+                            error.BadArgument,
+                            => try config_options.errorFn(err, "{s}", .{arg.string}),
+                        }
                     }
                 };
+            }
+
+            // check that all requireds are set
+            if (mode == .arguments) {
+                inline for (0.., A) |i, a| {
+                    if (a.desc.required and !self._sub_parser.isSet(i)) {
+                        try config_options.errorFn(ParseError.MissingRequired, "{s}", .{a.name});
+                    }
+                }
             }
             return self._parsed;
         }
