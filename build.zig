@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("clippy", .{
+    const mod = b.addModule("clippy", .{
         .root_source_file = b.path("src/main.zig"),
     });
 
@@ -28,4 +28,24 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_main_tests.step);
 
     b.installArtifact(main_tests);
+
+    // various examples
+    inline for (&[_][]const u8{"./examples/basic.zig"}) |example| {
+        const stem = comptime std.fs.path.stem(example);
+        const exe = b.addExecutable(.{
+            .name = stem,
+            .root_source_file = b.path(example),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addImport("clippy", mod);
+
+        const run_example = b.addRunArtifact(exe);
+        const run_step = b.step(stem, "Run example: " ++ stem);
+        run_step.dependOn(&run_example.step);
+
+        if (b.args) |args| {
+            run_example.addArgs(args);
+        }
+    }
 }
