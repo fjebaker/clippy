@@ -140,3 +140,37 @@ pub fn TagType(comptime T: type, comptime name: []const u8) type {
     }
     @compileError("No field named " ++ name);
 }
+
+/// Parse a string into a given type using a custom function in structs if
+/// neccessary.
+pub fn parseStringAs(comptime T: type, s: []const u8) !T {
+    switch (@typeInfo(T)) {
+        .pointer => |arr| {
+            if (arr.child == u8) {
+                return s;
+            } else {
+                // TODO: here's where we'll do multi argument parsing
+                @compileError("No method for parsing slices of this type");
+            }
+        },
+        .int => {
+            return try std.fmt.parseInt(T, s, 10);
+        },
+        .float => {
+            return try std.fmt.parseFloat(T, s);
+        },
+        .@"enum" => {
+            return try std.meta.stringToEnum(T, s);
+        },
+        .@"struct" => {
+            if (@hasDecl(T, "initFromArg")) {
+                return try @field(T, "initFromArg")(s);
+            } else {
+                @compileError(
+                    "Structs must declare a public `initFromArg` function",
+                );
+            }
+        },
+        else => @compileError(std.fmt.comptimePrint("No method for parsing type: '{any}'", .{T})),
+    }
+}
