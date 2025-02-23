@@ -227,7 +227,7 @@ pub fn ArgParser(comptime A: anytype) type {
         pub fn generateCompletion(allocator: std.mem.Allocator, opts: completion.Options) ![]const u8 {
             return switch (mode) {
                 .arguments => try completion.generateCompletion(allocator, A, opts),
-                .commands => unreachable,
+                .commands => try completion.generateCommandCompletion(allocator, A, opts),
             };
         }
 

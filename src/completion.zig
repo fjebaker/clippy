@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 const arguments = @import("arguments.zig");
 
 pub const CompletionWriter = struct {
@@ -210,4 +211,128 @@ test "argument completion" {
         \\}
         \\
     , comp1);
+}
+
+pub fn generateCommandCompletion(
+    allocator: std.mem.Allocator,
+    comptime Commands: type,
+    opts: Options,
+) ![]const u8 {
+    var writer = std.ArrayList(u8).init(allocator);
+    defer writer.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // write the completion functions for each sub command
+    inline for (@typeInfo(Commands).@"union".fields) |field| {
+        const full_name = try std.mem.join(
+            alloc,
+            "_",
+            &.{ opts.function_name, "sub", field.name },
+        );
+
+        var sub_opts = opts;
+        sub_opts.function_name = full_name;
+        const c = try field.type.generateCompletion(alloc, sub_opts);
+
+        try writer.appendSlice(c);
+    }
+
+    var case_body = std.ArrayList(u8).init(alloc);
+    try case_body.appendSlice("    case $line[1] in\n");
+
+    try writer.writer().print(
+        \\_arguments_{s}() {{
+        \\    local line state subcmds
+        \\    subcmds=(
+        \\
+    , .{opts.function_name});
+    inline for (@typeInfo(Commands).@"union".fields) |field| {
+        try writer.writer().print(
+            \\        '{s}:{s}'
+            \\
+        , .{ field.name, field.name });
+
+        try case_body.writer().print(
+            \\        {s})
+            \\            _arguments_{s}_sub_{s}
+            \\        ;;
+            \\
+        , .{ field.name, opts.function_name, field.name });
+    }
+    try case_body.appendSlice("    esac\n");
+
+    try writer.appendSlice(
+        \\    )
+        \\    _arguments \
+        \\        '1: :{_describe 'command' subcmds}' \
+        \\        '*:: :->args'
+        \\
+    );
+    try writer.appendSlice(case_body.items);
+    try writer.appendSlice("}\n");
+
+    return writer.toOwnedSlice();
+}
+
+test "command completion" {
+    const main = @import("main.zig");
+    const Command = main.Commands(union(enum) {
+        hello: main.Arguments(&.{
+            .{
+                .arg = "item",
+                .help = "Positional argument.",
+                .required = true,
+            },
+            .{
+                .arg = "-c/--control",
+                .help = "Toggleable",
+            },
+        }),
+        world: main.Arguments(&TestArguments),
+    });
+
+    const comp = try Command.generateCompletion(std.testing.allocator, .{ .function_name = "test" });
+    defer std.testing.allocator.free(comp);
+
+    try std.testing.expectEqualStrings(
+        \\_arguments_test_sub_hello() {
+        \\    _arguments -C \
+        \\        ':item:()' \
+        \\        '--control[]::()' \
+        \\        '-c[]::()'
+        \\}
+        \\_arguments_test_sub_world() {
+        \\    _arguments -C \
+        \\        ':item:()' \
+        \\        '--limit[]:limit:{compadd $(ls -1)}' \
+        \\        '-n[]:n:{compadd $(ls -1)}' \
+        \\        '::other:()' \
+        \\        '--flag[]::()' \
+        \\        '-f[]::()'
+        \\}
+        \\_arguments_test() {
+        \\    local line state subcmds
+        \\    subcmds=(
+        \\        'hello:hello'
+        \\        'world:world'
+        \\    )
+        \\    _arguments \
+        \\        '1: :{_describe 'command' subcmds}' \
+        \\        '*:: :->args'
+        \\    case $line[1] in
+        \\        hello)
+        \\            _arguments_test_sub_hello
+        \\        ;;
+        \\        world)
+        \\            _arguments_test_sub_world
+        \\        ;;
+        \\    esac
+        \\}
+        \\
+    ,
+        comp,
+    );
 }
