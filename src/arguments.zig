@@ -165,10 +165,16 @@ pub const Argument = struct {
         else
             ?InnerT;
 
-        if (arg.desc.default) |d| {
-            if (InnerT == DefaultType)
-                default = utils.parseStringAs(T, d) catch
-                    @compileError("Default argument is invalid: '" ++ d ++ "'");
+        comptime {
+            if (arg.desc.default) |d| {
+                if (InnerT == DefaultType) {
+                    default = d;
+                } else {
+                    const v = utils.parseStringAs(InnerT, d) catch
+                        @compileError("Default argument is invalid: '" ++ d ++ "'");
+                    default = @ptrCast(&v);
+                }
+            }
         }
 
         return .{
