@@ -114,6 +114,12 @@ pub fn ArgParser(comptime A: anytype) type {
             return .{ .itt = itt, .opts = opts };
         }
 
+        /// Initialise and immediately parse all arguments.
+        pub fn initParseAll(itt: *cli.ArgumentIterator, opts: ParseOptions) !Parsed {
+            var self = Self.init(itt, opts);
+            return try self.parseAll();
+        }
+
         fn commandsParseArg(self: *Self, arg: cli.Arg) !void {
             comptime {
                 if (mode != .commands) @compileError("Must be in .commands mode");
