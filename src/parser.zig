@@ -262,6 +262,13 @@ pub fn ArgParser(comptime A: anytype) type {
             }
         }
 
+        /// Throw an error through the appropriate route.
+        pub fn throwError(self: *const Self, err: anyerror, comptime fmt: []const u8, args: anytype) !void {
+            if (!self.opts.forgiving) {
+                try config_options.errorFn(err, fmt, args);
+            }
+        }
+
         /// Parse all arguments with a context for controlling the callback functions.
         pub fn parseAllCtx(
             self: *Self,
@@ -274,27 +281,16 @@ pub fn ArgParser(comptime A: anytype) type {
                         switch (err) {
                             ParseError.InvalidFlag,
                             ParseError.TooManyArguments,
-                            => try unhandled_fn(ctx, self, arg),
+                            => {
+                                try unhandled_fn(ctx, self, arg);
+                                continue;
+                            },
                             else => {},
                         }
                     }
 
                     if (!self.opts.forgiving) {
-                        switch (err) {
-                            error.CouldNotParse,
-                            error.FlagAsPositional,
-                            error.MissingFlagValue,
-                            error.DuplicateFlag,
-                            error.InvalidFlag,
-                            error.InvalidCommand,
-                            error.ExpectedPositional,
-                            error.TooManyArguments,
-                            error.TooFewArguments,
-                            error.InvalidCharacter,
-                            => try config_options.errorFn(err, "{s}", .{arg.string}),
-
-                            else => return err,
-                        }
+                        try config_options.errorFn(err, "{s}", .{arg.string});
                     }
                 };
             }

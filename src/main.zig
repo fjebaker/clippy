@@ -7,8 +7,11 @@ const arguments = @import("arguments.zig");
 
 pub const ArgumentDescriptor = arguments.ArgumentDescriptor;
 pub const ArgParser = parser.ArgParser;
+pub const Arg = cli.Arg;
 pub const ArgumentIterator = cli.ArgumentIterator;
 pub const Options = parser.Options;
+
+pub const ParseError = parser.ParseError;
 
 test "all" {
     _ = cli;
