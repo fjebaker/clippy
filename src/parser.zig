@@ -242,8 +242,10 @@ pub fn ArgParser(comptime A: anytype) type {
                     }
                 },
                 .commands => {
-                    inline for (@typeInfo(A).@"union".decls) |field| {
-                        _ = field;
+                    try writer.writeAll("Commands:\n");
+                    inline for (@typeInfo(A).@"union".fields) |field| {
+                        try writer.print(" {s}\n", .{field.name});
+                        try field.type.writeHelp(writer, opts);
                     }
                 },
             }
