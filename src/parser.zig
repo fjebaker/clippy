@@ -176,7 +176,7 @@ pub fn ArgParser(comptime A: anytype) type {
                 if (mode != .arguments) @compileError("Must be in .arguments mode");
             }
             inline for (A, 0..) |a, i| {
-                if (a.matches(arg)) {
+                if (a.desc.parse and a.matches(arg)) {
                     switch (a.info) {
                         .flag => |f| {
                             if (self._sub_parser.isSet(i))
@@ -342,7 +342,7 @@ fn initWithDefaults(comptime T: type) T {
 fn ParsedType(comptime args: []const arguments.Argument) type {
     comptime var fields: []const std.builtin.Type.StructField = &.{};
     inline for (args) |a| {
-        fields = fields ++ .{a.makeField()};
+        if (a.desc.parse) fields = fields ++ .{a.makeField()};
     }
 
     return @Type(.{
