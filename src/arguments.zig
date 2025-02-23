@@ -143,7 +143,7 @@ pub const Argument = struct {
 
     /// Use the Argument information to parse a `std.builtin.Type.StructField`.
     pub fn makeField(comptime arg: Argument) std.builtin.Type.StructField {
-        var default: ?*const anyopaque = null;
+        comptime var default: ?*const anyopaque = null;
         const InnerT: type = b: {
             switch (arg.info) {
                 .flag => |f| {
@@ -167,13 +167,16 @@ pub const Argument = struct {
 
         comptime {
             if (arg.desc.default) |d| {
-                if (InnerT == DefaultType) {
-                    default = d;
+                if (arg.desc.argtype == DefaultType) {
+                    default = @ptrCast(&d);
                 } else {
                     const v = utils.parseStringAs(InnerT, d) catch
                         @compileError("Default argument is invalid: '" ++ d ++ "'");
                     default = @ptrCast(&v);
                 }
+            } else if (!arg.desc.required and @typeInfo(T) == .optional) {
+                const v: T = null;
+                default = @ptrCast(&v);
             }
         }
 

@@ -107,12 +107,6 @@ const TestArguments = [_]ArgumentDescriptor{
     .{
         .arg = "other",
         .help = "Another positional",
-        // .argtype = struct {
-        //     value: []const u8,
-        //     pub fn initFromArg(s: []const u8) !@This() {
-        //         return .{ .value = s };
-        //     }
-        // },
     },
     .{
         .arg = "-f/--flag",
@@ -144,6 +138,19 @@ test "test-parse-1" {
         try std.testing.expectEqualStrings(parsed.item, "hello");
         try std.testing.expectEqual(parsed.other, null);
         try std.testing.expectEqual(true, parsed.flag);
+    }
+}
+
+test "test-parse-2" {
+    const Parser = Arguments(&.{
+        .{
+            .arg = "command",
+            .help = "Subcommand to print extended help for.",
+        },
+    });
+    {
+        const parsed = try testParseArgs(Parser, "");
+        try std.testing.expectEqual(parsed.command, null);
     }
 }
 
