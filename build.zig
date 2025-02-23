@@ -30,7 +30,10 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(main_tests);
 
     // various examples
-    inline for (&[_][]const u8{"./examples/basic.zig"}) |example| {
+    inline for (&[_][]const u8{
+        "./examples/basic.zig",
+        "./examples/commands.zig",
+    }) |example| {
         const stem = comptime std.fs.path.stem(example);
         const exe = b.addExecutable(.{
             .name = stem,
