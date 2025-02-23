@@ -33,7 +33,7 @@ pub const Options = struct {
 };
 
 const root = @import("root");
-const config_options: Options = if (@hasDecl(root, "clippy_options")) root.clippy_options else .{};
+pub const config_options: Options = if (@hasDecl(root, "clippy_options")) root.clippy_options else .{};
 
 /// The argument parsing interface.
 pub fn ArgParser(comptime A: anytype) type {

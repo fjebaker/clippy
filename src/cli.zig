@@ -101,6 +101,13 @@ pub const ArgumentIterator = struct {
         return self.args.data.len;
     }
 
+    /// Used to through an error through the appropriate channels as given by
+    /// the clippy options.
+    pub fn throwError(_: *const ArgumentIterator, err: anyerror, comptime fmt: []const u8, args: anytype) !void {
+        try @import("parser.zig").config_options.errorFn(err, fmt, args);
+        return err;
+    }
+
     /// Create a copy of the argument interator with all state reset.
     pub fn copy(self: *const ArgumentIterator) ArgumentIterator {
         return ArgumentIterator.init(self.args.data);
