@@ -10,6 +10,8 @@ pub const ParseError = error{
     DuplicateFlag,
     /// Flag is not recognised.
     InvalidFlag,
+    /// Given command is not known.
+    InvalidCommand,
     /// Positional should be given but there was a flag, mainly used in the
     /// context of commands.
     ExpectedPositional,
@@ -127,6 +129,8 @@ pub fn ArgParser(comptime A: anytype) type {
                         const p = &@field(sub_parser, field.name);
                         try p.parseArg(arg);
                         @field(self._parsed, field.name) = p._parsed;
+
+                        return;
                     }
                 }
             } else {
@@ -138,17 +142,26 @@ pub fn ArgParser(comptime A: anytype) type {
                             field.name,
                             initWithDefaults(field.type.Parsed),
                         );
-                        const sub_parser_instance = @field(field.type, "init")(
-                            self.itt,
-                            self.opts,
-                        );
                         self._sub_parser = @unionInit(
                             A,
                             field.name,
-                            sub_parser_instance,
+                            @field(field.type, "init")(
+                                self.itt,
+                                self.opts,
+                            ),
                         );
+                        return;
                     }
                 }
+            }
+
+            if (arg.flag) {
+                return ParseError.InvalidFlag;
+            } else {
+                if (self._sub_parser == null) {
+                    return ParseError.InvalidCommand;
+                }
+                return ParseError.TooManyArguments;
             }
         }
 
@@ -238,6 +251,17 @@ pub fn ArgParser(comptime A: anytype) type {
             };
         }
 
+        fn checkAllRequired(self: *const Self) !void {
+            comptime {
+                if (mode != .arguments) @compileError("Must be in .arguments mode");
+            }
+            inline for (0.., A) |i, a| {
+                if (a.desc.required and !self._sub_parser.isSet(i)) {
+                    try config_options.errorFn(ParseError.TooFewArguments, "{s}", .{a.name});
+                }
+            }
+        }
+
         /// Parse all arguments with a context for controlling the callback functions.
         pub fn parseAllCtx(
             self: *Self,
@@ -257,30 +281,38 @@ pub fn ArgParser(comptime A: anytype) type {
 
                     if (!self.opts.forgiving) {
                         switch (err) {
-                            else => return err,
                             error.CouldNotParse,
                             error.FlagAsPositional,
                             error.MissingFlagValue,
                             error.DuplicateFlag,
                             error.InvalidFlag,
+                            error.InvalidCommand,
                             error.ExpectedPositional,
                             error.TooManyArguments,
                             error.TooFewArguments,
                             error.InvalidCharacter,
                             => try config_options.errorFn(err, "{s}", .{arg.string}),
+
+                            else => return err,
                         }
                     }
                 };
             }
 
             // check that all requireds are set
-            if (mode == .arguments) {
-                inline for (0.., A) |i, a| {
-                    if (a.desc.required and !self._sub_parser.isSet(i)) {
-                        try config_options.errorFn(ParseError.TooFewArguments, "{s}", .{a.name});
+            switch (mode) {
+                .arguments => try self.checkAllRequired(),
+                .commands => {
+                    if (self._sub_parser) |sb| {
+                        switch (sb) {
+                            inline else => |p| try p.checkAllRequired(),
+                        }
+                    } else {
+                        try config_options.errorFn(ParseError.TooFewArguments, "Missing command.", .{});
                     }
-                }
+                },
             }
+
             return self._parsed;
         }
 
