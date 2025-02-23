@@ -3,7 +3,16 @@ const std = @import("std");
 const utils = @import("utils.zig");
 
 const ListIterator = utils.ListIterator;
-const Error = utils.Error;
+
+pub const IteratorError = error{
+    /// Could not parse into either a positional or flag's type.
+    CouldNotParse,
+    /// Trying to use a flag in a function that is only defined for
+    /// positionals.
+    FlagAsPositional,
+    /// Flag takes a value but none was provided.
+    MissingFlagValue,
+};
 
 /// Argument abstraction
 pub const Arg = struct {
@@ -32,15 +41,15 @@ pub const Arg = struct {
 
     /// Convert the argument string to a given type. Raises
     /// `FlagAsPositional` if attempting to call on a flag argument.
-    pub fn as(self: *const Arg, comptime T: type) Error!T {
-        if (self.flag) return Error.FlagAsPositional;
+    pub fn as(self: *const Arg, comptime T: type) IteratorError!T {
+        if (self.flag) return IteratorError.FlagAsPositional;
         const info = @typeInfo(T);
         const parsed: T = switch (info) {
             .Int => std.fmt.parseInt(T, self.string, 10),
             .Float => std.fmt.parseFloat(T, self.string),
             else => @compileError("Could not parse type given."),
         } catch {
-            return Error.CouldNotParse;
+            return IteratorError.CouldNotParse;
         };
 
         return parsed;
@@ -63,7 +72,7 @@ const ArgumentType = enum {
                 if (std.mem.eql(u8, arg, "--")) return .Seperator;
                 return .ShortFlag;
             }
-            return Error.BadArgument;
+            return IteratorError.CouldNotParse;
         }
         return .Positional;
     }
@@ -121,9 +130,9 @@ pub const ArgumentIterator = struct {
     /// Get the next argument string as the argument to a flag. Raises
     /// `FlagAsPositional` if the next argument is a flag.  Differs from
     /// `nextPositional` is that it does not increment the positional index.
-    pub fn getValue(self: *ArgumentIterator) Error![]const u8 {
-        var arg = (try self.next()) orelse return Error.MissingFlagValue;
-        if (arg.flag) return Error.FlagAsPositional;
+    pub fn getValue(self: *ArgumentIterator) IteratorError![]const u8 {
+        var arg = (try self.next()) orelse return IteratorError.MissingFlagValue;
+        if (arg.flag) return IteratorError.FlagAsPositional;
         // decrement counter as we don't actually want to count as positional
         self.counter -= 1;
         arg.index = null;
@@ -132,20 +141,20 @@ pub const ArgumentIterator = struct {
 
     /// Get the next argument as the argument as a positional. Raises
     /// `FlagAsPositional` if the next argument is a flag.
-    pub fn nextPositional(self: *ArgumentIterator) Error!?Arg {
+    pub fn nextPositional(self: *ArgumentIterator) IteratorError!?Arg {
         const arg = (try self.next()) orelse return null;
-        if (arg.flag) return Error.FlagAsPositional;
+        if (arg.flag) return IteratorError.FlagAsPositional;
         return arg;
     }
 
     /// Get the next argument as an `Arg`
-    pub fn next(self: *ArgumentIterator) Error!?Arg {
+    pub fn next(self: *ArgumentIterator) IteratorError!?Arg {
         const arg = try self.nextImpl();
         self.previous = arg;
         return arg;
     }
 
-    fn nextImpl(self: *ArgumentIterator) Error!?Arg {
+    fn nextImpl(self: *ArgumentIterator) IteratorError!?Arg {
         // check if we need the next argument
         if (self.index >= self.current.len) {
             self.resetArgState();

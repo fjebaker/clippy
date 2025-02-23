@@ -6,10 +6,16 @@ const arguments = @import("arguments.zig");
 const completion = @import("completion.zig");
 
 pub const ParseError = error{
-    DuplicateArgument,
-    InvalidArgument,
+    /// Flag has already been given.
+    DuplicateFlag,
+    /// Flag is not recognised.
+    InvalidFlag,
+    /// Positional should be given but there was a flag, mainly used in the
+    /// context of commands.
     ExpectedPositional,
-    MissingRequired,
+    /// Too many positional arguments provided.
+    TooManyArguments,
+    TooFewArguments,
 };
 
 pub fn default_error_fn(err: anyerror, comptime fmt: []const u8, args: anytype) anyerror!void {
@@ -155,7 +161,7 @@ pub fn ArgParser(comptime A: anytype) type {
                     switch (a.info) {
                         .flag => |f| {
                             if (self._sub_parser.isSet(i))
-                                return ParseError.DuplicateArgument;
+                                return ParseError.DuplicateFlag;
 
                             if (f.accepts_value) {
                                 const value = try self.itt.getValue();
@@ -183,7 +189,12 @@ pub fn ArgParser(comptime A: anytype) type {
                     }
                 }
             }
-            return ParseError.InvalidArgument;
+
+            if (arg.flag) {
+                return ParseError.InvalidFlag;
+            } else {
+                return ParseError.TooManyArguments;
+            }
         }
 
         fn parseArg(self: *Self, arg: cli.Arg) !void {
@@ -223,7 +234,7 @@ pub fn ArgParser(comptime A: anytype) type {
         pub fn ParseCallbacks(comptime T: type) type {
             return struct {
                 /// Called during `InvalidArgument`
-                unhandled_arg: *const fn (ctx: T, parser: *Self, arg: cli.Arg) anyerror!void,
+                unhandled_arg: ?*const fn (ctx: T, parser: *Self, arg: cli.Arg) anyerror!void = null,
             };
         }
 
@@ -235,25 +246,27 @@ pub fn ArgParser(comptime A: anytype) type {
         ) !Parsed {
             while (try self.itt.next()) |arg| {
                 self.parseArg(arg) catch |err| {
-                    switch (err) {
-                        ParseError.InvalidArgument => try callbacks.unhandled_arg(ctx, self, arg),
-                        else => {},
+                    if (callbacks.unhandled_arg) |unhandled_fn| {
+                        switch (err) {
+                            ParseError.InvalidFlag,
+                            ParseError.TooManyArguments,
+                            => try unhandled_fn(ctx, self, arg),
+                            else => {},
+                        }
                     }
+
                     if (!self.opts.forgiving) {
                         switch (err) {
                             else => return err,
-
                             error.CouldNotParse,
-                            error.InvalidArgument,
-                            error.DuplicateFlag,
                             error.FlagAsPositional,
-                            error.InvalidFlag,
-                            error.TooManyArguments,
-                            error.UnknownFlag,
-                            error.IncompatibleTypes,
-                            error.ExpectedPositional,
                             error.MissingFlagValue,
-                            error.BadArgument,
+                            error.DuplicateFlag,
+                            error.InvalidFlag,
+                            error.ExpectedPositional,
+                            error.TooManyArguments,
+                            error.TooFewArguments,
+                            error.InvalidCharacter,
                             => try config_options.errorFn(err, "{s}", .{arg.string}),
                         }
                     }
@@ -264,7 +277,7 @@ pub fn ArgParser(comptime A: anytype) type {
             if (mode == .arguments) {
                 inline for (0.., A) |i, a| {
                     if (a.desc.required and !self._sub_parser.isSet(i)) {
-                        try config_options.errorFn(ParseError.MissingRequired, "{s}", .{a.name});
+                        try config_options.errorFn(ParseError.TooFewArguments, "{s}", .{a.name});
                     }
                 }
             }
@@ -273,13 +286,7 @@ pub fn ArgParser(comptime A: anytype) type {
 
         /// Parse all arguments, returning the `Parsed` struct.
         pub fn parseAll(self: *Self) !Parsed {
-            const Ctx = struct {
-                fn unhandled_arg(_: @This(), _: *Self, _: cli.Arg) anyerror!void {
-                    return ParseError.InvalidArgument;
-                }
-            };
-
-            return try self.parseAllCtx(Ctx{}, .{ .unhandled_arg = Ctx.unhandled_arg });
+            return try self.parseAllCtx({}, .{});
         }
     };
 }

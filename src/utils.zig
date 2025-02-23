@@ -1,23 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
 
-pub const Error = RuntimeError || ComptimeError;
-
-pub const RuntimeError = error{
-    // runtime errors
-    BadArgument,
-    CouldNotParse,
-    DuplicateFlag,
-    FlagAsPositional,
-    InvalidFlag,
-    MissingArgument,
-    MissingFlagValue,
-    MissingCommand,
-    TooFewArguments,
-    TooManyArguments,
-    UnknownFlag,
-};
-
 pub const ComptimeError = error{
     // comptime parser errors
     IncompatibleTypes,
