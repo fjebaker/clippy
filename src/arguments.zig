@@ -183,7 +183,7 @@ pub const Argument = struct {
         return .{
             .name = @ptrCast(arg.name),
             .type = T,
-            .default_value = default,
+            .default_value_ptr = default,
             .is_comptime = false,
             .alignment = @alignOf(T),
         };
@@ -196,8 +196,8 @@ pub fn ArgumentsFromDescriptors(comptime arg_descs: []const ArgumentDescriptor) 
     inline for (arg_descs) |a| {
         const arg = Argument.fromDescriptor(a) catch |err|
             @compileError(
-            std.fmt.comptimePrint("Could not parse argument '{s}': Error {any}", .{ a.arg, err }),
-        );
+                std.fmt.comptimePrint("Could not parse argument '{s}': Error {any}", .{ a.arg, err }),
+            );
         args = args ++ .{arg};
     }
     return args;

@@ -1,5 +1,6 @@
 .{
-    .name = "clippy",
+    .name = .clippy,
+    .fingerprint  = 0x775926aca0d40606,
     .paths = .{""},
     .version = "0.3.0",
     .dependencies = .{},

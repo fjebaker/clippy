@@ -330,7 +330,7 @@ pub fn ArgParser(comptime A: anytype) type {
 fn initWithDefaults(comptime T: type) T {
     var init_parsed: T = undefined;
     inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (field.default_value) |ptr| {
+        if (field.default_value_ptr) |ptr| {
             const default_value = @as(
                 *align(1) const field.type,
                 @ptrCast(ptr),
