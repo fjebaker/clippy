@@ -21,7 +21,8 @@ pub const ParseError = error{
 };
 
 pub fn default_error_fn(err: anyerror, comptime fmt: []const u8, args: anytype) anyerror!void {
-    const writer = std.io.getStdErr().writer();
+    var stderr = std.fs.File.stderr().writer(&.{});
+    const writer = &stderr.interface;
     try writer.print("{any}: ", .{err});
     try writer.print(fmt, args);
     try writer.writeAll("\n");

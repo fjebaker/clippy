@@ -6,20 +6,12 @@ pub fn build(b: *std.Build) void {
 
     const mod = b.addModule("clippy", .{
         .root_source_file = b.path("src/main.zig"),
-    });
-
-    const lib = b.addStaticLibrary(.{
-        .name = "clippy",
-        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-    b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = mod,
     });
 
     const run_main_tests = b.addRunArtifact(main_tests);
@@ -37,11 +29,15 @@ pub fn build(b: *std.Build) void {
         const stem = comptime std.fs.path.stem(example);
         const exe = b.addExecutable(.{
             .name = stem,
-            .root_source_file = b.path(example),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(example),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "clippy", .module = mod },
+                },
+            }),
         });
-        exe.root_module.addImport("clippy", mod);
 
         const run_example = b.addRunArtifact(exe);
         const run_step = b.step(stem, "Run example: " ++ stem);
