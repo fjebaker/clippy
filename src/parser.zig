@@ -99,6 +99,7 @@ pub fn ArgParser(comptime A: anytype) type {
         pub const ParseOptions = struct {
             /// Do not throw errors but silently ignore them.
             forgiving: bool = false,
+            aliases: ?std.StringHashMap([]const u8) = null,
         };
 
         allocator: ?std.mem.Allocator = null,
@@ -142,8 +143,16 @@ pub fn ArgParser(comptime A: anytype) type {
                 }
             } else {
                 if (arg.flag) return ParseError.ExpectedPositional;
+
+                var arg_name = arg.string;
+                if (self.opts.aliases) |alias_map| {
+                    if (alias_map.get(arg.string)) |alias| {
+                        arg_name = alias;
+                    }
+                }
+
                 inline for (@typeInfo(A).@"union".fields) |field| {
-                    if (std.mem.eql(u8, field.name, arg.string)) {
+                    if (std.mem.eql(u8, field.name, arg_name)) {
                         self._parsed = @unionInit(
                             Parsed,
                             field.name,
