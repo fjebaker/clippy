@@ -10,7 +10,7 @@ pub const HelpOptions = struct {
 };
 
 pub fn helpArgument(writer: anytype, arg: arguments.Argument, opts: HelpOptions) !void {
-    try writer.writeByteNTimes(' ', opts.left_pad);
+    _ = try writer.splatByte(' ', opts.left_pad);
 
     const name = arg.desc.display_name orelse arg.desc.arg;
 
@@ -19,7 +19,8 @@ pub fn helpArgument(writer: anytype, arg: arguments.Argument, opts: HelpOptions)
     } else {
         try writer.print("[{s}]", .{name});
     }
-    try writer.writeByteNTimes(
+
+    _ = try writer.splatByte(
         ' ',
         opts.centre_padding -| (name.len + 2),
     );

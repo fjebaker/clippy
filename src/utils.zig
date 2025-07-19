@@ -108,7 +108,7 @@ pub fn writeWrapped(writer: anytype, text: []const u8, opts: WrappingOptions) !v
         line_len += word.len;
         if (line_len > opts.column_limit) {
             try writer.writeByte('\n');
-            try writer.writeByteNTimes(' ', opts.left_pad + opts.continuation_indent);
+            _ = try writer.splatByte(' ', opts.left_pad + opts.continuation_indent);
             line_len = opts.continuation_indent;
         }
         try writer.writeAll(word);
