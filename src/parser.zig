@@ -242,7 +242,7 @@ pub fn ArgParser(comptime A: anytype) type {
         }
 
         /// Write the help for this parser into the writer.
-        pub fn writeHelp(writer: anytype, comptime opts: help.HelpOptions) !void {
+        pub fn writeHelp(writer: *std.Io.Writer, comptime opts: help.HelpOptions) !void {
             switch (mode) {
                 .arguments => {
                     inline for (A) |arg| {

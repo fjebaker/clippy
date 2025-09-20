@@ -51,12 +51,12 @@ pub fn ListIterator(comptime T: type) type {
 
 /// For tests only
 pub fn fromString(alloc: std.mem.Allocator, args: []const u8) ![][]const u8 {
-    var list = std.ArrayList([]const u8).init(alloc);
-    errdefer list.deinit();
+    var list = std.ArrayList([]const u8).empty;
+    errdefer list.deinit(alloc);
     var itt = std.mem.tokenizeAny(u8, args, " =");
 
-    while (itt.next()) |item| try list.append(item);
-    return list.toOwnedSlice();
+    while (itt.next()) |item| try list.append(alloc, item);
+    return list.toOwnedSlice(alloc);
 }
 
 pub const WrappingOptions = struct {

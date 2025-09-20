@@ -10,13 +10,13 @@ pub const CompletionWriter = struct {
     pub fn init(allocator: std.mem.Allocator) !CompletionWriter {
         return .{
             .allocator = allocator,
-            .items = std.ArrayList([]const u8).init(allocator),
+            .items = std.ArrayList([]const u8).empty,
             .arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
     pub fn deinit(self: *CompletionWriter) void {
-        self.items.deinit();
+        self.items.deinit(self.allocator);
         self.arena.deinit();
         self.* = undefined;
     }
@@ -31,13 +31,13 @@ pub const CompletionWriter = struct {
             fmt,
             args,
         );
-        try self.items.append(next);
+        try self.items.append(self.allocator, next);
     }
 
     pub fn finalize(self: *CompletionWriter, name: []const u8) ![]const u8 {
-        var list = std.ArrayList(u8).init(self.allocator);
-        defer list.deinit();
-        var writer = list.writer();
+        var list = std.ArrayList(u8).empty;
+        defer list.deinit(self.allocator);
+        var writer = list.writer(self.allocator);
 
         // TODO: this is absolutely horrible and needs fixing
 
@@ -50,7 +50,7 @@ pub const CompletionWriter = struct {
         }
         try writer.writeAll("\n}\n");
 
-        return try list.toOwnedSlice();
+        return try list.toOwnedSlice(self.allocator);
     }
 };
 
@@ -218,12 +218,12 @@ pub fn generateCommandCompletion(
     comptime Commands: type,
     opts: Options,
 ) ![]const u8 {
-    var writer = std.ArrayList(u8).init(allocator);
-    defer writer.deinit();
-
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
+
+    var writer = std.ArrayList(u8).empty;
+    defer writer.deinit(allocator);
 
     // write the completion functions for each sub command
     inline for (@typeInfo(Commands).@"union".fields) |field| {
@@ -237,44 +237,44 @@ pub fn generateCommandCompletion(
         sub_opts.function_name = full_name;
         const c = try field.type.generateCompletion(alloc, sub_opts);
 
-        try writer.appendSlice(c);
+        try writer.appendSlice(allocator, c);
     }
 
-    var case_body = std.ArrayList(u8).init(alloc);
-    try case_body.appendSlice("    case $line[1] in\n");
+    var case_body = std.ArrayList(u8).empty;
+    try case_body.appendSlice(alloc, "    case $line[1] in\n");
 
-    try writer.writer().print(
+    try writer.writer(allocator).print(
         \\_arguments_{s}() {{
         \\    local line state subcmds
         \\    subcmds=(
         \\
     , .{opts.function_name});
     inline for (@typeInfo(Commands).@"union".fields) |field| {
-        try writer.writer().print(
+        try writer.writer(allocator).print(
             \\        '{s}:{s}'
             \\
         , .{ field.name, field.name });
 
-        try case_body.writer().print(
+        try case_body.writer(alloc).print(
             \\        {s})
             \\            _arguments_{s}_sub_{s}
             \\        ;;
             \\
         , .{ field.name, opts.function_name, field.name });
     }
-    try case_body.appendSlice("    esac\n");
+    try case_body.appendSlice(alloc, "    esac\n");
 
-    try writer.appendSlice(
+    try writer.appendSlice(allocator,
         \\    )
         \\    _arguments \
         \\        '1: :{_describe 'command' subcmds}' \
         \\        '*:: :->args'
         \\
     );
-    try writer.appendSlice(case_body.items);
-    try writer.appendSlice("}\n");
+    try writer.appendSlice(allocator, case_body.items);
+    try writer.appendSlice(allocator, "}\n");
 
-    return writer.toOwnedSlice();
+    return writer.toOwnedSlice(allocator);
 }
 
 test "command completion" {

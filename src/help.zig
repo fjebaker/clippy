@@ -9,8 +9,8 @@ pub const HelpOptions = struct {
     indent: usize = 2,
 };
 
-pub fn helpArgument(writer: anytype, arg: arguments.Argument, opts: HelpOptions) !void {
-    _ = try writer.splatByte(' ', opts.left_pad);
+pub fn helpArgument(writer: *std.Io.Writer, arg: arguments.Argument, opts: HelpOptions) !void {
+    _ = try writer.splatByteAll(' ', opts.left_pad);
 
     const name = arg.desc.display_name orelse arg.desc.arg;
 
@@ -20,7 +20,7 @@ pub fn helpArgument(writer: anytype, arg: arguments.Argument, opts: HelpOptions)
         try writer.print("[{s}]", .{name});
     }
 
-    _ = try writer.splatByte(
+    _ = try writer.splatByteAll(
         ' ',
         opts.centre_padding -| (name.len + 2),
     );
@@ -63,11 +63,11 @@ test "argument help" {
     const Arguments = @import("main.zig").Arguments;
     const Args1 = Arguments(&TestArguments);
 
-    var list = std.ArrayList(u8).init(std.testing.allocator);
-    defer list.deinit();
+    var list = std.ArrayList(u8).empty;
+    defer list.deinit(std.testing.allocator);
 
-    const writer = list.writer();
-    try Args1.writeHelp(writer, .{});
+    var writer = list.writer(std.testing.allocator).adaptToNewApi(&.{});
+    try Args1.writeHelp(&writer.new_interface, .{});
 
     try std.testing.expectEqualStrings(
         \\    <item>                    Positional argument.
